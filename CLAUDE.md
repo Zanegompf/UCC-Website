@@ -67,8 +67,8 @@ bot/
 process.** The UI mirrors the decision; it never makes it.
 
 - `filterData(data, level)` strips: `users` and `codes` always; the balance
-  sheet, internal staff notes, client requests, the shift log and job
-  applications below staff; the rate card below client; the Discord webhooks
+  sheet, internal staff notes, client requests and the shift log below staff;
+  the rate card below client; the Discord webhooks **and job applications**
   below exec; plus projects and announcements whose `visibility` / `audience`
   outranks the viewer.
 - `jobs` is deliberately **public**: the application form on the front page has
@@ -182,6 +182,13 @@ yet. The account requirement is what stops it being an anonymous spam endpoint;
 self-registration is one click from the sign-in button.
 
 Applications do not post to Discord, for the same reason requests do not.
+
+Reading them is **exec only**, one level above client requests: an application
+states what somebody expects to be paid, and staff have no reason to see each
+other's asking price. The hiring board in the staff room is therefore rendered
+only for executives, and `StaffRoom` numbers its sections through a counter
+rather than by hand — hard-coded numerals would read I, III, IV for a staff
+viewer once that section is hidden.
 
 `jobs` is seeded from the DemocracyCraft wiki's job list (trades, professions,
 government, licences, legal licences) and is exec-editable in the control room,

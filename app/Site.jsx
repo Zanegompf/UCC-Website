@@ -1832,11 +1832,19 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
   const shifts = [...(data.shifts || [])].reverse();
   const applications = [...(data.applications || [])].reverse();
 
+  // The hiring board is executive-only, so the numerals cannot be written by
+  // hand — a staff viewer would otherwise read I, III, IV.
+  const numerals = ["I", "II", "III", "IV", "V"];
+  let counted = 0;
+  const step = () => numerals[counted++];
+
+  const canSeeHiring = level >= LEVEL.exec;
+
   return (
     <div className="space-y-10">
       <section>
         <SectionHead
-          index="I"
+          index={step()}
           title="Incoming requests"
           note="Anything a client has sent through the desk."
         />
@@ -1881,11 +1889,12 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
         )}
       </section>
 
+      {canSeeHiring && (
       <section>
         <SectionHead
-          index="II"
+          index={step()}
           title="Hiring board"
-          note="People who have applied to work here."
+          note="People who have applied to work here. Executives only — an application states what somebody expects to be paid."
         />
         {applications.length === 0 ? (
           <Panel tone="deep" style={{ padding: 20 }}>
@@ -1951,9 +1960,10 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
           </div>
         )}
       </section>
+      )}
 
       <section>
-        <SectionHead index="III" title="Standing orders" note="How we do things. Read before your first shift." />
+        <SectionHead index={step()} title="Standing orders" note="How we do things. Read before your first shift." />
         <div className="grid md:grid-cols-2 gap-4">
           {[
             {
@@ -1998,7 +2008,7 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
 
       <section>
         <SectionHead
-          index="IV"
+          index={step()}
           title="Shift log"
           note="The last shifts filed. Executives can correct entries in the control room."
         />
