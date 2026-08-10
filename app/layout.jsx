@@ -9,7 +9,8 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body style={{ background: "#EFEAE0" }}>{children}</body>
+      {/* The shell is dark at both ends, so overscroll should be too. */}
+      <body style={{ background: "#060D16" }}>{children}</body>
     </html>
   );
 }

@@ -15,19 +15,42 @@ import {
 
 /* ------------------------------------------------------------------ *
  * The United Commerce Corporation — DemocracyCraft corporate site
- * Design direction: engraved share certificate + accounting ledger.
+ *
+ * Design direction: a modern holding company that happens to be old.
+ * A deep navy shell — ticker, masthead, hero, footer — wraps light,
+ * generous working pages. The engraved heritage is kept deliberately and
+ * sparingly: the wax seal is the company mark, every figure is set in
+ * mono, and the guilloche survives as a hairline texture rather than a
+ * border. Square corners, hairline rules, no blur, no gradient buttons.
  * ------------------------------------------------------------------ */
 
 const C = {
-  paper: "#EFEAE0",
-  paperDeep: "#E5DDCD",
-  paperLine: "#DCD2BF",
-  ink: "#10233F",
-  inkSoft: "#41536E",
-  ledger: "#1E6A4F",
-  seal: "#8C2F2A",
-  gold: "#B8892B",
-  rule: "#C6BAA6",
+  // Working surfaces. Cooler and cleaner than the old cream, so the dark
+  // shell above them reads as deliberate contrast rather than as age.
+  paper: "#F7F6F3",
+  paperDeep: "#EDEBE5",
+  paperLine: "#E1DED7",
+  rule: "#D5D1C8",
+
+  ink: "#111C2E",
+  inkSoft: "#5B6779",
+
+  // The shell. `night` is the masthead and hero, `nightDeep` the ticker
+  // rail and footer, so the two dark bands are distinguishable.
+  night: "#0C1724",
+  nightDeep: "#060D16",
+  nightSoft: "#93A3B6",
+  nightLine: "rgba(255,255,255,0.13)",
+
+  ledger: "#1C7554",
+  seal: "#9B3630",
+  gold: "#C0913A",
+
+  // Same three, lifted for legibility against `night`. Dark backgrounds
+  // eat saturation, so the page versions read muddy up there.
+  ledgerUp: "#5FD3A0",
+  sealDown: "#E7938C",
+  goldBright: "#E2BB6B",
 };
 
 const F = {
@@ -146,13 +169,18 @@ function Rule({ heavy }) {
   );
 }
 
-function Panel({ children, style, tone }) {
+/**
+ * The card everything sits in. `tone="deep"` tints it for asides,
+ * `raised` adds the lift used by things that behave like a link.
+ */
+function Panel({ children, style, tone, raised }) {
   return (
     <div
+      className={raised ? "ucc-raise" : undefined}
       style={{
-        background: tone === "deep" ? C.paperDeep : "rgba(255,255,255,0.42)",
+        background: tone === "deep" ? C.paperDeep : "#FFFFFF",
         border: `1px solid ${C.rule}`,
-        boxShadow: "2px 2px 0 rgba(16,35,63,0.07)",
+        boxShadow: "0 1px 2px rgba(17,28,46,0.05)",
         ...style,
       }}
     >
@@ -163,62 +191,79 @@ function Panel({ children, style, tone }) {
 
 function SectionHead({ index, title, note }) {
   return (
-    <div className="mb-5">
-      <div className="flex items-baseline gap-3">
+    <div className="mb-7">
+      <div className="flex items-center gap-3">
         <span
           style={{
             fontFamily: F.mono,
             fontSize: 11,
             color: C.gold,
-            letterSpacing: "0.12em",
+            letterSpacing: "0.18em",
           }}
         >
           {index}
         </span>
-        <h2
-          style={{
-            fontFamily: F.display,
-            fontSize: 30,
-            lineHeight: 1.05,
-            color: C.ink,
-            fontWeight: 600,
-          }}
-        >
-          {title}
-        </h2>
+        <span style={{ flex: 1, height: 1, background: C.rule }} />
       </div>
+      <h2
+        className="mt-3"
+        style={{
+          fontFamily: F.display,
+          fontSize: "clamp(28px, 4vw, 42px)",
+          lineHeight: 1.04,
+          color: C.ink,
+          fontWeight: 600,
+          letterSpacing: "-0.015em",
+        }}
+      >
+        {title}
+      </h2>
       {note && (
         <p
-          className="mt-2 max-w-2xl"
-          style={{ fontFamily: F.body, fontSize: 14.5, color: C.inkSoft }}
+          className="mt-3 max-w-2xl"
+          style={{
+            fontFamily: F.body,
+            fontSize: 15.5,
+            lineHeight: 1.6,
+            color: C.inkSoft,
+          }}
         >
           {note}
         </p>
       )}
-      <div className="mt-3">
-        <Rule />
-      </div>
     </div>
   );
 }
 
-function Stat({ label, value, sub, accent }) {
+/**
+ * A single figure. `onDark` swaps the label and caption colours for the
+ * hero band; the number itself is always mono, light or dark.
+ */
+function Stat({ label, value, sub, accent, onDark }) {
   return (
     <div className="py-3">
-      <Eyebrow>{label}</Eyebrow>
+      <Eyebrow color={onDark ? C.nightSoft : C.inkSoft}>{label}</Eyebrow>
       <div
         style={{
           fontFamily: F.mono,
-          fontSize: 22,
-          color: accent || C.ink,
-          marginTop: 6,
+          fontSize: "clamp(22px, 2.6vw, 30px)",
+          color: accent || (onDark ? "#FFFFFF" : C.ink),
+          marginTop: 8,
           fontWeight: 500,
+          letterSpacing: "-0.02em",
         }}
       >
         {value}
       </div>
       {sub && (
-        <div style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft }}>
+        <div
+          className="mt-1"
+          style={{
+            fontFamily: F.body,
+            fontSize: 12.5,
+            color: onDark ? C.nightSoft : C.inkSoft,
+          }}
+        >
           {sub}
         </div>
       )}
@@ -232,23 +277,27 @@ function Btn({ children, onClick, variant, type, style, disabled }) {
     fontSize: 11.5,
     letterSpacing: "0.14em",
     textTransform: "uppercase",
-    padding: "10px 16px",
+    padding: "11px 18px",
     border: `1px solid ${C.ink}`,
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.45 : 1,
-    transition: "background 140ms ease, color 140ms ease",
+    transition: "background 140ms ease, color 140ms ease, border-color 140ms ease",
   };
   const skins = {
-    solid: { background: C.ink, color: C.paper },
+    solid: { background: C.ink, color: "#FFFFFF" },
     ghost: { background: "transparent", color: C.ink },
-    seal: { background: C.seal, color: C.paper, border: `1px solid ${C.seal}` },
-    ledger: { background: C.ledger, color: C.paper, border: `1px solid ${C.ledger}` },
+    seal: { background: C.seal, color: "#FFFFFF", border: `1px solid ${C.seal}` },
+    ledger: { background: C.ledger, color: "#FFFFFF", border: `1px solid ${C.ledger}` },
+    // For the masthead and hero, where the page colours would vanish.
+    light: { background: "transparent", color: "#FFFFFF", border: `1px solid ${C.nightLine}` },
+    gold: { background: C.gold, color: C.night, border: `1px solid ${C.gold}` },
   };
   return (
     <button
       type={type || "button"}
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
+      className={disabled ? undefined : `ucc-btn ucc-btn-${variant || "ghost"}`}
       style={{ ...base, ...(skins[variant] || skins.ghost), ...style }}
     >
       {children}
@@ -307,73 +356,106 @@ function Field({ label, value, onChange, type, rows, placeholder, options }) {
   );
 }
 
-/* ----------------------------- certificate ----------------------------- */
+/* -------------------------- marks and the hero -------------------------- */
 
-function Guilloche({ height }) {
+/**
+ * The engraved stripe, kept from the certificate era but demoted to a
+ * hairline texture: a full-strength band reads as decoration, a faint one
+ * reads as paper stock.
+ */
+function Guilloche({ height, tone }) {
+  const dark = tone === "dark";
   return (
     <div
       aria-hidden="true"
       style={{
         height: height || 10,
-        backgroundImage: `repeating-linear-gradient(135deg, ${C.ink} 0 1px, transparent 1px 6px)`,
-        opacity: 0.45,
+        backgroundImage: `repeating-linear-gradient(135deg, ${
+          dark ? "#FFFFFF" : C.ink
+        } 0 1px, transparent 1px 7px)`,
+        opacity: dark ? 0.13 : 0.3,
       }}
     />
   );
 }
 
-function Seal({ ticker }) {
+/**
+ * The wax seal, now the company mark rather than a flourish — it appears
+ * in the masthead small, in the hero and footer at full size.
+ */
+function Seal({ ticker, size, tone }) {
+  const d = size || 104;
+  const dark = tone === "dark";
+  const ringColor = dark ? C.goldBright : C.seal;
+  const fill = dark ? "rgba(226,187,107,0.08)" : "rgba(155,54,48,0.06)";
+  const small = d < 60;
+
   return (
     <div
       className="flex items-center justify-center shrink-0"
       style={{
-        width: 104,
-        height: 104,
+        width: d,
+        height: d,
         borderRadius: "50%",
-        border: `2px solid ${C.seal}`,
-        boxShadow: `inset 0 0 0 4px ${C.paper}, inset 0 0 0 5px ${C.seal}`,
-        background: "rgba(140,47,42,0.06)",
+        border: `${small ? 1 : 2}px solid ${ringColor}`,
+        boxShadow: small
+          ? "none"
+          : `inset 0 0 0 4px ${dark ? C.night : C.paper}, inset 0 0 0 5px ${ringColor}`,
+        background: fill,
       }}
     >
-      <div className="text-center">
+      <div className="text-center leading-none">
         <div
           style={{
             fontFamily: F.display,
-            fontSize: 26,
-            color: C.seal,
+            fontSize: small ? d * 0.42 : 26,
+            color: ringColor,
             lineHeight: 1,
             fontWeight: 700,
           }}
         >
           {ticker}
         </div>
-        <div
-          style={{
-            fontFamily: F.mono,
-            fontSize: 7,
-            letterSpacing: "0.16em",
-            color: C.seal,
-            marginTop: 5,
-          }}
-        >
-          REDMONT
-        </div>
-        <div
-          style={{
-            fontFamily: F.mono,
-            fontSize: 7,
-            letterSpacing: "0.16em",
-            color: C.seal,
-          }}
-        >
-          INCORPORATED
-        </div>
+        {!small && (
+          <>
+            <div
+              style={{
+                fontFamily: F.mono,
+                fontSize: 7,
+                letterSpacing: "0.16em",
+                color: ringColor,
+                marginTop: 5,
+              }}
+            >
+              REDMONT
+            </div>
+            <div
+              style={{
+                fontFamily: F.mono,
+                fontSize: 7,
+                letterSpacing: "0.16em",
+                color: ringColor,
+              }}
+            >
+              INCORPORATED
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function Certificate({ data }) {
+/**
+ * The full-bleed dark band the front page opens on.
+ *
+ * It carries everything the engraved certificate used to: the seal, the
+ * certification wording, the CEO's signature. What changed is the framing
+ * — the company states its name at scale first, and the instrument it is
+ * issued under becomes the fine print underneath, which is the order a
+ * large company presents itself in.
+ */
+function Hero({ data }) {
   const s = data.stock;
   const change = s.price - s.prevClose;
   const pct = s.prevClose ? (change / s.prevClose) * 100 : 0;
@@ -381,125 +463,164 @@ function Certificate({ data }) {
   const cap = s.price * s.shares;
 
   return (
-    <div
-      style={{
-        border: `2px solid ${C.ink}`,
-        background:
-          "linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.18) 100%)",
-        padding: 6,
-      }}
-    >
-      <div style={{ border: `1px solid ${C.rule}`, padding: 0 }}>
-        <Guilloche height={12} />
-        <div className="px-5 py-7 md:px-10 md:py-10">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-            <div className="min-w-0">
-              <Eyebrow color={C.gold}>
-                Certificate of common stock · {data.company.exchange}
-              </Eyebrow>
-              <h1
-                className="mt-3"
+    <section style={{ background: C.night, color: "#FFFFFF" }}>
+      <div className="max-w-6xl mx-auto px-4 pt-12 pb-10 md:pt-20 md:pb-14">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-10">
+          <div className="min-w-0">
+            <Eyebrow color={C.goldBright}>
+              {data.company.exchange} · {data.company.ticker} · Incorporated{" "}
+              {data.company.founded}
+            </Eyebrow>
+            <h1
+              className="mt-5"
+              style={{
+                fontFamily: F.display,
+                fontWeight: 700,
+                color: "#FFFFFF",
+                fontSize: "clamp(40px, 8vw, 82px)",
+                lineHeight: 0.94,
+                letterSpacing: "-0.025em",
+              }}
+            >
+              The United
+              <br />
+              Commerce
+              <br />
+              Corporation
+            </h1>
+            <p
+              className="mt-6 max-w-lg"
+              style={{
+                fontFamily: F.body,
+                fontSize: "clamp(16px, 1.8vw, 19px)",
+                lineHeight: 1.55,
+                color: C.nightSoft,
+              }}
+            >
+              {data.company.tagline}
+            </p>
+
+            <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-2">
+              {[
+                [data.divisions.length, "divisions"],
+                [data.staff.length, "on the books"],
+                [data.company.hq, ""],
+              ].map(([v, k], i) => (
+                <span key={i} className="flex items-baseline gap-2">
+                  <span
+                    style={{ fontFamily: F.mono, fontSize: 15, color: "#FFFFFF" }}
+                  >
+                    {v}
+                  </span>
+                  {k && (
+                    <span
+                      style={{
+                        fontFamily: F.body,
+                        fontSize: 13.5,
+                        color: C.nightSoft,
+                      }}
+                    >
+                      {k}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex md:flex-col items-center md:items-end gap-5 shrink-0">
+            <Seal ticker={data.company.ticker} tone="dark" />
+            <div className="md:text-right">
+              <Eyebrow color={C.nightSoft}>Chief Executive</Eyebrow>
+              <div
                 style={{
                   fontFamily: F.display,
-                  fontWeight: 700,
-                  color: C.ink,
-                  fontSize: "clamp(32px, 7vw, 62px)",
-                  lineHeight: 0.98,
-                  letterSpacing: "-0.01em",
+                  fontStyle: "italic",
+                  fontSize: 24,
+                  color: "#FFFFFF",
+                  marginTop: 4,
                 }}
               >
-                The United
-                <br />
-                Commerce
-                <br />
-                Corporation
-              </h1>
-              <p
-                className="mt-4 max-w-md"
-                style={{ fontFamily: F.body, fontSize: 15, color: C.inkSoft }}
-              >
-                {data.company.tagline}
-              </p>
-            </div>
-            <div className="flex md:block items-center gap-5">
-              <Seal ticker={data.company.ticker} />
-              <div className="md:mt-4 md:text-center">
-                <Eyebrow>Incorporated</Eyebrow>
-                <div
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 13,
-                    color: C.ink,
-                    marginTop: 4,
-                  }}
-                >
-                  {data.company.founded} · {data.company.hq}
-                </div>
+                {data.company.ceo}
               </div>
             </div>
           </div>
+        </div>
 
-          <div className="mt-8">
-            <Rule />
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 divide-y md:divide-y-0">
+        <div
+          className="mt-12 pt-2"
+          style={{ borderTop: `1px solid ${C.nightLine}` }}
+        >
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8">
             <Stat
+              onDark
               label="Last traded"
               value={"$" + dec(s.price)}
               sub={"as of " + s.updated}
             />
             <Stat
+              onDark
               label="Change"
-              value={(up ? "+" : "") + dec(change) + " / " + (up ? "+" : "") + pct.toFixed(1) + "%"}
-              accent={up ? C.ledger : C.seal}
+              value={
+                (up ? "+" : "") +
+                dec(change) +
+                " / " +
+                (up ? "+" : "") +
+                pct.toFixed(1) +
+                "%"
+              }
+              accent={up ? C.ledgerUp : C.sealDown}
               sub="since previous close"
             />
             <Stat
+              onDark
               label="Shares issued"
               value={s.shares.toLocaleString("en-US")}
               sub="common stock"
             />
-            <Stat label="Market capital" value={compact(cap)} sub="price × shares" />
+            <Stat onDark label="Market capital" value={compact(cap)} sub="price × shares" />
           </div>
 
-          <div className="mt-6" style={{ height: 150 }}>
+          <div className="mt-6" style={{ height: 170 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={s.history}
                 margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
               >
-                <CartesianGrid stroke={C.paperLine} vertical={false} />
+                <CartesianGrid stroke={C.nightLine} vertical={false} />
                 <XAxis
                   dataKey="label"
-                  tick={{ fontFamily: F.mono, fontSize: 9, fill: C.inkSoft }}
-                  axisLine={{ stroke: C.rule }}
+                  tick={{ fontFamily: F.mono, fontSize: 9.5, fill: C.nightSoft }}
+                  axisLine={{ stroke: C.nightLine }}
                   tickLine={false}
                   interval="preserveStartEnd"
                   minTickGap={24}
                 />
                 <YAxis
                   domain={["auto", "auto"]}
-                  tick={{ fontFamily: F.mono, fontSize: 9, fill: C.inkSoft }}
+                  tick={{ fontFamily: F.mono, fontSize: 9.5, fill: C.nightSoft }}
                   axisLine={false}
                   tickLine={false}
                   width={44}
                 />
                 <Tooltip
+                  cursor={{ stroke: C.nightLine }}
                   contentStyle={{
                     fontFamily: F.mono,
                     fontSize: 11,
-                    background: C.paper,
-                    border: `1px solid ${C.ink}`,
+                    background: C.nightDeep,
+                    border: `1px solid ${C.nightLine}`,
                     borderRadius: 0,
+                    color: "#FFFFFF",
                   }}
+                  labelStyle={{ color: C.nightSoft }}
                   formatter={(v) => ["$" + dec(v), "Price"]}
                 />
                 <Line
                   type="stepAfter"
                   dataKey="price"
-                  stroke={C.ink}
-                  strokeWidth={1.6}
+                  stroke={up ? C.ledgerUp : C.sealDown}
+                  strokeWidth={1.8}
                   dot={false}
                   isAnimationActive={false}
                 />
@@ -507,38 +628,23 @@ function Certificate({ data }) {
             </ResponsiveContainer>
           </div>
 
-          <div className="mt-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-            <p
-              className="max-w-lg"
-              style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft }}
-            >
-              This certifies that the holder is the owner of fully paid shares of
-              common stock in {data.company.name}, transferable on the books of
-              the corporation via {data.company.exchange}.
-            </p>
-            <div className="text-right shrink-0">
-              <div
-                style={{
-                  fontFamily: F.display,
-                  fontStyle: "italic",
-                  fontSize: 22,
-                  color: C.ink,
-                  borderBottom: `1px solid ${C.ink}`,
-                  paddingBottom: 2,
-                  display: "inline-block",
-                }}
-              >
-                {data.company.ceo}
-              </div>
-              <div className="mt-1">
-                <Eyebrow>Chief Executive Officer</Eyebrow>
-              </div>
-            </div>
-          </div>
+          <p
+            className="mt-8 max-w-2xl"
+            style={{
+              fontFamily: F.body,
+              fontSize: 12.5,
+              lineHeight: 1.6,
+              color: C.nightSoft,
+            }}
+          >
+            This certifies that the holder is the owner of fully paid shares of
+            common stock in {data.company.name}, transferable on the books of the
+            corporation via {data.company.exchange}.
+          </p>
         </div>
-        <Guilloche height={12} />
       </div>
-    </div>
+      <Guilloche height={10} tone="dark" />
+    </section>
   );
 }
 
@@ -621,20 +727,21 @@ function Overview({ data, level }) {
     <div className="space-y-12">
       <section>
         <SectionHead index="I" title="What we are for" />
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-3 gap-8 md:gap-10">
           <div className="md:col-span-2">
             <p
               style={{
                 fontFamily: F.display,
-                fontSize: "clamp(19px, 2.4vw, 24px)",
+                fontSize: "clamp(20px, 2.4vw, 26px)",
                 lineHeight: 1.45,
+                letterSpacing: "-0.01em",
                 color: C.ink,
               }}
             >
               {data.company.mission}
             </p>
           </div>
-          <Panel style={{ padding: 18 }} tone="deep">
+          <Panel style={{ padding: 22, alignSelf: "start" }} tone="deep">
             <Eyebrow>On the record</Eyebrow>
             <div className="mt-4 space-y-3">
               {[
@@ -673,25 +780,61 @@ function Overview({ data, level }) {
           title="The four trades"
           note="Each division keeps its own books and reports into the executive."
         />
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {data.divisions.map((d) => (
-            <Panel key={d.code} style={{ padding: 18 }}>
-              <Eyebrow color={C.gold}>{d.code}</Eyebrow>
+            <Panel
+              key={d.code}
+              raised
+              style={{ padding: 24, display: "flex", flexDirection: "column" }}
+            >
+              {/* Codes run to five or six characters, so this has to size to
+                  its text rather than sit in a fixed square. */}
+              <div
+                className="inline-block mb-5 self-start"
+                style={{
+                  padding: "5px 9px",
+                  border: `1px solid ${C.gold}`,
+                  color: C.gold,
+                  fontFamily: F.mono,
+                  fontSize: 11,
+                  letterSpacing: "0.1em",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {d.code}
+              </div>
               <h3
-                className="mt-2"
-                style={{ fontFamily: F.display, fontSize: 24, color: C.ink }}
+                style={{
+                  fontFamily: F.display,
+                  fontSize: 27,
+                  lineHeight: 1.1,
+                  color: C.ink,
+                  letterSpacing: "-0.01em",
+                }}
               >
                 {d.name}
               </h3>
               <p
-                className="mt-2"
-                style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
+                className="mt-3 flex-1"
+                style={{
+                  fontFamily: F.body,
+                  fontSize: 14,
+                  color: C.inkSoft,
+                  lineHeight: 1.6,
+                }}
               >
                 {d.blurb}
               </p>
-              <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${C.rule}` }}>
+              <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.rule}` }}>
                 <Eyebrow>Lead</Eyebrow>
-                <div style={{ fontFamily: F.mono, fontSize: 12.5, color: C.ink, marginTop: 3 }}>
+                <div
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 13,
+                    color: C.ink,
+                    marginTop: 4,
+                  }}
+                >
                   {d.lead}
                 </div>
               </div>
@@ -2495,9 +2638,16 @@ export default function App() {
     return (
       <div
         className="min-h-screen flex items-center justify-center"
-        style={{ background: C.paper }}
+        style={{ background: C.night }}
       >
-        <span style={{ fontFamily: F.mono, fontSize: 12, letterSpacing: "0.2em", color: C.inkSoft }}>
+        <span
+          style={{
+            fontFamily: F.mono,
+            fontSize: 12,
+            letterSpacing: "0.2em",
+            color: C.nightSoft,
+          }}
+        >
           {status.toUpperCase()}
         </span>
       </div>
@@ -2509,17 +2659,9 @@ export default function App() {
   const up = change >= 0;
 
   return (
-    <div
-      style={{
-        background: C.paper,
-        minHeight: "100vh",
-        backgroundImage: `repeating-linear-gradient(0deg, rgba(16,35,63,0.035) 0 1px, transparent 1px 28px)`,
-      }}
-    >
-
-
-      {/* ticker strip */}
-      <div style={{ background: C.ink, color: C.paper }}>
+    <div style={{ background: C.paper, minHeight: "100vh" }}>
+      {/* ticker rail */}
+      <div style={{ background: C.nightDeep, color: "#FFFFFF" }}>
         <div className="max-w-6xl mx-auto px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-1">
           {[
             [data.company.ticker, "$" + dec(s.price)],
@@ -2528,55 +2670,88 @@ export default function App() {
             ["EXCH", data.company.exchange],
           ].map(([k, v], i) => (
             <span key={i} style={{ fontFamily: F.mono, fontSize: 11, letterSpacing: "0.1em" }}>
-              <span style={{ opacity: 0.55 }}>{k}</span>{" "}
-              <span style={{ color: i === 1 ? (up ? "#7FD1A8" : "#E39A95") : C.paper }}>{v}</span>
+              <span style={{ color: C.nightSoft }}>{k}</span>{" "}
+              <span style={{ color: i === 1 ? (up ? C.ledgerUp : C.sealDown) : "#FFFFFF" }}>
+                {v}
+              </span>
             </span>
           ))}
-          <span className="ml-auto" style={{ fontFamily: F.mono, fontSize: 10.5, opacity: 0.6 }}>
+          <span
+            className="ml-auto"
+            style={{ fontFamily: F.mono, fontSize: 10.5, color: C.nightSoft }}
+          >
             {(session.username ? session.username + " · " : "") + ROLE_NAME[role].toUpperCase()}
           </span>
         </div>
       </div>
 
-      {/* header */}
+      {/* masthead */}
       <header
         className="sticky top-0 z-40"
-        style={{ background: C.paper, borderBottom: `1px solid ${C.rule}` }}
+        style={{ background: C.night, borderBottom: `1px solid ${C.nightLine}` }}
       >
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <button
             onClick={() => setTab("Overview")}
-            className="text-left min-w-0"
+            className="text-left min-w-0 flex items-center gap-3"
             style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
           >
-            <div style={{ fontFamily: F.display, fontSize: 19, color: C.ink, fontWeight: 700, lineHeight: 1 }}>
-              United Commerce
-            </div>
-            <div style={{ fontFamily: F.mono, fontSize: 9.5, letterSpacing: "0.18em", color: C.gold, marginTop: 2 }}>
-              {data.company.ticker} · {data.company.hq.toUpperCase()}
-            </div>
+            <Seal ticker={data.company.ticker} size={34} tone="dark" />
+            <span className="min-w-0">
+              <span
+                className="block"
+                style={{
+                  fontFamily: F.display,
+                  fontSize: 20,
+                  color: "#FFFFFF",
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                United Commerce
+              </span>
+              <span
+                className="block"
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 9.5,
+                  letterSpacing: "0.18em",
+                  color: C.goldBright,
+                  marginTop: 3,
+                }}
+              >
+                {data.company.hq.toUpperCase()}
+              </span>
+            </span>
           </button>
           <div className="flex items-center gap-2 shrink-0">
             {data.company.discordInvite && (
               <a href={data.company.discordInvite} target="_blank" rel="noreferrer">
-                <Btn>Discord</Btn>
+                <Btn variant="light">Discord</Btn>
               </a>
             )}
-            <Btn onClick={() => setShowSettings(true)} style={{ padding: "10px 12px" }}>
+            <Btn
+              variant="light"
+              onClick={() => setShowSettings(true)}
+              style={{ padding: "11px 13px" }}
+            >
               <span aria-hidden="true">⚙</span>
               <span className="sr-only"> Settings</span>
             </Btn>
             {session.username ? (
-              <Btn onClick={() => setTab("Account")}>{session.username}</Btn>
+              <Btn variant="light" onClick={() => setTab("Account")}>
+                {session.username}
+              </Btn>
             ) : (
-              <Btn variant="solid" onClick={() => setShowSignIn(true)}>
+              <Btn variant="gold" onClick={() => setShowSignIn(true)}>
                 Sign in
               </Btn>
             )}
           </div>
         </div>
-        <nav className="max-w-6xl mx-auto px-4 pb-2 overflow-x-auto">
-          <div className="flex gap-5" style={{ whiteSpace: "nowrap" }}>
+        <nav className="max-w-6xl mx-auto px-4 overflow-x-auto">
+          <div className="flex gap-6" style={{ whiteSpace: "nowrap" }}>
             {tabs
               .filter((t) => level >= t.min)
               .map((t) => (
@@ -2587,14 +2762,15 @@ export default function App() {
                   style={{
                     background: "none",
                     border: "none",
-                    padding: "4px 0",
+                    padding: "10px 0",
                     cursor: "pointer",
                     fontFamily: F.mono,
                     fontSize: 11,
                     letterSpacing: "0.14em",
                     textTransform: "uppercase",
-                    color: tab === t.name ? C.ink : C.inkSoft,
-                    borderBottom: tab === t.name ? `2px solid ${C.gold}` : "2px solid transparent",
+                    color: tab === t.name ? "#FFFFFF" : C.nightSoft,
+                    borderBottom:
+                      tab === t.name ? `2px solid ${C.gold}` : "2px solid transparent",
                   }}
                 >
                   {t.label || t.name}
@@ -2604,15 +2780,11 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8 md:py-12">
-        {tab === "Overview" && (
-          <>
-            <div className="mb-12">
-              <Certificate data={data} />
-            </div>
-            <Overview data={data} level={level} />
-          </>
-        )}
+      {/* The hero is full-bleed, so it sits outside the page column. */}
+      {tab === "Overview" && <Hero data={data} />}
+
+      <main className="max-w-6xl mx-auto px-4 py-10 md:py-16">
+        {tab === "Overview" && <Overview data={data} level={level} />}
         {tab === "Share" && <ShareSection data={data} level={level} />}
         {tab === "Financials" && <Financials data={data} level={level} />}
         {tab === "People" && <People data={data} level={level} />}
@@ -2631,23 +2803,46 @@ export default function App() {
         )}
       </main>
 
-      <footer style={{ borderTop: `1px solid ${C.rule}`, background: C.paperDeep }}>
-        <Guilloche height={8} />
-        <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row justify-between gap-4">
-          <div>
-            <div style={{ fontFamily: F.display, fontSize: 18, color: C.ink }}>
-              {data.company.name}
+      <footer style={{ background: C.nightDeep, color: "#FFFFFF" }}>
+        <Guilloche height={8} tone="dark" />
+        <div className="max-w-6xl mx-auto px-4 py-12 flex flex-col md:flex-row justify-between gap-8">
+          <div className="flex items-start gap-4">
+            <Seal ticker={data.company.ticker} size={44} tone="dark" />
+            <div>
+              <div
+                style={{
+                  fontFamily: F.display,
+                  fontSize: 20,
+                  color: "#FFFFFF",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {data.company.name}
+              </div>
+              <p
+                className="mt-2 max-w-md"
+                style={{
+                  fontFamily: F.body,
+                  fontSize: 13,
+                  color: C.nightSoft,
+                  lineHeight: 1.6,
+                }}
+              >
+                A roleplay company on DemocracyCraft ({data.company.serverIp}).
+                Figures are in-game currency and mean nothing outside the server.
+              </p>
             </div>
-            <p className="mt-1 max-w-md" style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.55 }}>
-              A roleplay company on DemocracyCraft ({data.company.serverIp}). Figures are in-game currency and mean nothing outside the server.
-            </p>
           </div>
-          <div className="text-left md:text-right">
-            <Eyebrow>Filed by</Eyebrow>
-            <div style={{ fontFamily: F.mono, fontSize: 12, color: C.ink, marginTop: 4 }}>
+          <div className="text-left md:text-right shrink-0">
+            <Eyebrow color={C.nightSoft}>Filed by</Eyebrow>
+            <div
+              style={{ fontFamily: F.mono, fontSize: 12.5, color: "#FFFFFF", marginTop: 5 }}
+            >
               Office of the Chief Executive
             </div>
-            <div style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, marginTop: 2 }}>
+            <div
+              style={{ fontFamily: F.mono, fontSize: 11.5, color: C.nightSoft, marginTop: 3 }}
+            >
               Last price posted {s.updated}
             </div>
           </div>

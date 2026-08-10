@@ -35,7 +35,8 @@ app/
   Site.jsx          ~2600 lines, one "use client" component tree — the whole UI
   page.jsx          server component, renders <Site/>
   layout.jsx        html shell, metadata
-  globals.css       font @import + tailwind directives + focus styles
+  globals.css       font @import, tailwind directives, focus + hover styles
+                    (.ucc-btn-*, .ucc-raise — inline style cannot do :hover)
   api/
     data/           GET filtered record, PUT full record (exec only)
     auth/login/     POST username+password -> session cookie
@@ -237,25 +238,48 @@ silently serve the **old** build and produce confusing 405s.
 
 ## Design system
 
-Identity: an engraved **share certificate** and an accounting **ledger**. Not a
-crypto dashboard, not a SaaS landing page. Restraint over decoration.
+Identity: **a modern holding company that happens to be old.** A deep navy shell
+— ticker rail, masthead, hero, footer — wraps light, generous working pages. The
+engraved heritage is kept deliberately and sparingly rather than abandoned: the
+wax seal is the company mark, every figure is mono, and the guilloche survives as
+a hairline texture instead of a border. Still not a crypto dashboard and still
+not a SaaS landing page. Restraint over decoration.
 
 ```js
-C = { paper:#EFEAE0, paperDeep:#E5DDCD, paperLine:#DCD2BF,
-      ink:#10233F, inkSoft:#41536E, ledger:#1E6A4F,
-      seal:#8C2F2A, gold:#B8892B, rule:#C6BAA6 }
+C = { // working surfaces
+      paper:#F7F6F3, paperDeep:#EDEBE5, paperLine:#E1DED7, rule:#D5D1C8,
+      ink:#111C2E, inkSoft:#5B6779,
+      // the dark shell
+      night:#0C1724, nightDeep:#060D16, nightSoft:#93A3B6,
+      nightLine:rgba(255,255,255,0.13),
+      // accents, and the same three lifted for use on `night`
+      ledger:#1C7554, seal:#9B3630, gold:#C0913A,
+      ledgerUp:#5FD3A0, sealDown:#E7938C, goldBright:#E2BB6B }
 F = { display:'Bodoni Moda', body:'Archivo', mono:'IBM Plex Mono' }
 ```
 
+- `night` is the masthead and hero; `nightDeep` is the ticker rail and footer, so
+  the two dark bands stay distinguishable. `<body>` is `nightDeep` so overscroll
+  matches at both ends.
+- **Never put `ledger` / `seal` / `gold` on a dark background** — dark eats
+  saturation and they read muddy. Use `ledgerUp` / `sealDown` / `goldBright`.
 - Bodoni for headings, Archivo for prose, Plex Mono for every number, label and
-  eyebrow. Money is always mono.
+  eyebrow. Money is always mono. Headings get `letter-spacing:-0.01em` or tighter
+  at display sizes.
 - Green means up/positive, oxblood means down/restricted, gold is the accent used
-  sparingly. Section numerals are roman.
-- Square corners. Hairline `rule` borders. `2px 2px 0` hard shadows, no blur.
-- Charts: `type="stepAfter"`, `isAnimationActive={false}`, gridlines in
-  `paperLine`, tooltips square with an ink border.
-- Signature elements: the guilloche stripe band (`repeating-linear-gradient`),
-  the wax seal circle, the progress bars drawn as dashed ledger ticks.
+  sparingly. Section numerals are roman, in gold, above the title with a hairline
+  running off to the right.
+- Square corners everywhere. Hairline `rule` borders. Soft, shallow shadows
+  (`0 1px 2px`) — the old `2px 2px 0` hard shadow is gone. No blur, no gradient
+  fills on buttons.
+- Charts: `type="stepAfter"`, `isAnimationActive={false}`. On light, gridlines in
+  `paperLine`; on `night`, gridlines in `nightLine` and a `nightDeep` tooltip.
+- Signature elements: the wax `Seal` (takes `size` and `tone="dark"`, and is the
+  masthead logo at 34px), the `Guilloche` hairline, progress bars as dashed
+  ledger ticks.
+- Hover belongs in `globals.css`, not inline: `.ucc-btn-*` per skin, `.ucc-raise`
+  for cards that behave like list entries. Inline `style` cannot express `:hover`,
+  which is why these live there.
 
 Prose voice: plain, concrete, a bit dry, occasionally wry. Contractions fine.
 Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /

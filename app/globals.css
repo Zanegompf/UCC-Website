@@ -10,14 +10,41 @@ html, body { margin: 0; padding: 0; }
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid #B8892B;
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid #C0913A;
   outline-offset: 2px;
 }
 
-input:focus, textarea:focus, select:focus { border-color: #10233F !important; }
-.ucc-tab:hover { color: #10233F !important; }
+input:focus, textarea:focus, select:focus { border-color: #111C2E !important; }
+
+/* The nav sits on the dark masthead, so hover resolves toward white. */
+.ucc-tab:hover { color: #FFFFFF !important; }
+
+/* Buttons darken or fill on hover, per skin. */
+.ucc-btn-ghost:hover { background: #111C2E !important; color: #FFFFFF !important; }
+.ucc-btn-solid:hover { background: #000000 !important; }
+.ucc-btn-light:hover {
+  background: rgba(255,255,255,0.10) !important;
+  border-color: rgba(255,255,255,0.34) !important;
+}
+.ucc-btn-gold:hover { background: #E2BB6B !important; }
+.ucc-btn-seal:hover { background: #832C27 !important; }
+.ucc-btn-ledger:hover { background: #155C42 !important; }
+
+/* Cards that behave like an entry in a list, not a static box. */
+.ucc-raise {
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+.ucc-raise:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(17,28,46,0.10);
+  border-color: #B9B2A5;
+}
+
+::selection { background: #C0913A; color: #0C1724; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+  .ucc-raise:hover { transform: none; }
 }
