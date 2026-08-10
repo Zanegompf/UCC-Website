@@ -166,6 +166,16 @@ the announcements channel. `"All posts"` on a hook means it takes everything;
 passing `"All posts"` *as the event* is a broadcast to every hook, which is
 what the control room's test button uses.
 
+Only two things post: **notices** (`Announcements`) and the **shift log**.
+Client desk requests deliberately do not — they name a client and arrive
+whenever somebody fills the form, so they stay on the staff room board. Do not
+re-add a `postToDiscord` call to `app/api/requests/route.js`. A hook still
+storing the retired `"Client requests"` value matches nothing, which is the
+intended outcome; it is not migrated onto another event, because that would
+start feeding it posts nobody pointed at it. `Field` shows a stored `options`
+value even when it is no longer offered, so such a hook displays what it
+actually holds.
+
 `discord.webhook` is the pre-list single URL. `ensureData()` promotes it into
 `hooks` as "Main"/"All posts", and `lib/discord.js` only falls back to it when
 **no** hook is configured — never merely because routing excluded them all,

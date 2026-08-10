@@ -84,13 +84,9 @@ const ROLE_TABS = [
 
 // Mirrors HOOK_EVENTS in lib/discord.js. Kept as its own copy so the server's
 // posting code stays out of the browser bundle — if you add an event there,
-// add it here too.
-const HOOK_EVENTS = [
-  "All posts",
-  "Announcements",
-  "Client requests",
-  "Shift log",
-];
+// add it here too. Client desk requests are not on the list on purpose: they
+// stay on the site rather than pinging the channel.
+const HOOK_EVENTS = ["All posts", "Announcements", "Shift log"];
 
 const PREFS_KEY = "ucc:prefs";
 const DEFAULT_PREFS = { fullFigures: false, landingTab: "Overview" };
@@ -337,7 +333,13 @@ function Field({ label, value, onChange, type, rows, placeholder, options }) {
           onChange={(e) => onChange(e.target.value)}
           style={shared}
         >
-          {options.map((o) => (
+          {/* A stored value that is no longer offered still has to appear, or
+              the box would show something other than what is saved. Retired
+              webhook events are the case that needs this. */}
+          {(options.includes(value) || value === undefined || value === ""
+            ? options
+            : [value, ...options]
+          ).map((o) => (
             <option key={o} value={o}>
               {o}
             </option>
@@ -1465,7 +1467,7 @@ function ClientDesk({ data, level, onSubmitRequest }) {
         <SectionHead
           index="II"
           title="Ask for something"
-          note="This reaches the executive and, if the bot is connected, the company Discord."
+          note="This lands on the staff room board, where the people who price and fill it will see it."
         />
         <Panel style={{ padding: 20 }}>
           <div className="grid md:grid-cols-2 gap-x-5">
@@ -1491,7 +1493,7 @@ function ClientDesk({ data, level, onSubmitRequest }) {
             </Btn>
             {sent && (
               <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}>
-                Sent. Expect a reply in Discord.
+                Filed. Someone will pick it up from the board.
               </span>
             )}
           </div>
@@ -2169,7 +2171,7 @@ function ControlRoom({ data, save, level, session }) {
         <SectionHead
           index="III"
           title="Discord"
-          note="Add one webhook per channel (Channel settings, Integrations, Webhooks). Each one takes only the posts you point at it, so the shift log does not have to land in the announcements channel. Anyone with executive access can see these URLs, so treat them as shared company secrets and reset any that leak."
+          note="Add one webhook per channel (Channel settings, Integrations, Webhooks). Each one takes only the posts you point at it, so the shift log does not have to land in the announcements channel. Client desk requests never go to Discord — they stay on the staff room board. Anyone with executive access can see these URLs, so treat them as shared company secrets and reset any that leak."
         />
         <Panel style={{ padding: 20 }}>
           <ListEditor

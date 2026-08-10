@@ -3,7 +3,6 @@ import { ensureData } from "@/lib/seed";
 import { writeData } from "@/lib/store";
 import { getSession } from "@/lib/auth";
 import { levelOf, LEVEL, effectiveRole } from "@/lib/roles";
-import { postToDiscord } from "@/lib/discord";
 import {
   rateLimit,
   tooMany,
@@ -64,13 +63,10 @@ export async function POST(req) {
   data.requests = [...(data.requests || []), entry].slice(-200);
   await writeData(data);
 
-  await postToDiscord(data, {
-    event: "Client requests",
-    title: "New client request — " + entry.type,
-    body: entry.detail,
-    footer: entry.from + (entry.contact ? " · " + entry.contact : ""),
-    color: 0xb8892b,
-  });
+  // Deliberately no Discord post. A request carries a client's name, handle and
+  // what they are buying, and it arrives whenever someone fills the form —
+  // notices are the only thing that should ping the channel. Requests land in
+  // the staff room instead, where the people who act on them already look.
 
   return NextResponse.json({ ok: true });
 }
