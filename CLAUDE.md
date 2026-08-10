@@ -198,15 +198,26 @@ leave the form with nothing to pick.
 
 ## Discord posting
 
-Only two things post: **notices** (`Announcements`) and the **shift log**.
-Client desk requests deliberately do not — they name a client and arrive
-whenever somebody fills the form, so they stay on the staff room board. Do not
-re-add a `postToDiscord` call to `app/api/requests/route.js`. A hook still
-storing the retired `"Client requests"` value matches nothing, which is the
-intended outcome; it is not migrated onto another event, because that would
-start feeding it posts nobody pointed at it. `Field` shows a stored `options`
-value even when it is no longer offered, so such a hook displays what it
-actually holds.
+**Posting a notice is the only thing on the whole site that reaches a webhook.**
+Client requests, shift logs and job applications all stay on their boards here:
+each is filed many times a day and names a person, so none of them belongs in a
+channel. Do not re-add a `postToDiscord` call to `requests`, `shifts` or
+`applications` — that is a decision, not an oversight.
+
+There is therefore exactly one content path to Discord: `publish()` in the
+control room, on a **public** notice with the box ticked. The only other call is
+the connection test, which is diagnostics rather than content — without it a
+webhook cannot be verified without publishing something real. There is
+deliberately no "push price to Discord" button; a price announcement goes out as
+a notice with the figure in it.
+
+`HOOK_EVENTS` is down to `All posts` and `Announcements`, which now behave
+identically. The pair is kept so a hook can still be aimed and so a future event
+has somewhere to go. Hooks still storing the retired `"Client requests"` or
+`"Shift log"` values match nothing, which is intended — they are **not** migrated
+onto a live event, because that would start firing at a channel nobody aimed at.
+`Field` renders a stored `options` value even when it is no longer offered, so
+such a hook shows what it actually holds.
 
 `discord.webhook` is the pre-list single URL. `ensureData()` promotes it into
 `hooks` as "Main"/"All posts", and `lib/discord.js` only falls back to it when

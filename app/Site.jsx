@@ -84,9 +84,9 @@ const ROLE_TABS = [
 
 // Mirrors HOOK_EVENTS in lib/discord.js. Kept as its own copy so the server's
 // posting code stays out of the browser bundle — if you add an event there,
-// add it here too. Client desk requests are not on the list on purpose: they
-// stay on the site rather than pinging the channel.
-const HOOK_EVENTS = ["All posts", "Announcements", "Shift log"];
+// add it here too. Posting a notice is the only thing on this site that reaches
+// a webhook; requests, shifts and applications all stay put.
+const HOOK_EVENTS = ["All posts", "Announcements"];
 
 const PREFS_KEY = "ucc:prefs";
 const DEFAULT_PREFS = { fullFigures: false, landingTab: "Overview" };
@@ -735,6 +735,7 @@ function ListEditor({ title, items, fields, blank, onChange }) {
                     type={f.type}
                     rows={f.rows}
                     options={f.options}
+                    hint={f.hint}
                     onChange={(v) => update(i, f.k, v)}
                   />
                 </div>
@@ -2429,22 +2430,12 @@ function ControlRoom({ data, save, level, session }) {
             <Field label="Date label" value={pricePoint.label} onChange={(v) => setPricePoint({ ...pricePoint, label: v })} placeholder="15 July" />
             <Field label="Price" type="number" value={pricePoint.price} onChange={(v) => setPricePoint({ ...pricePoint, price: v })} />
           </div>
+          {/* There is deliberately no "push price to Discord" button. Posting a
+              notice is the only thing that reaches a webhook, so a price
+              announcement goes out as a notice with the figure in it. */}
           <div className="flex gap-3 flex-wrap">
             <Btn variant="ledger" onClick={addPricePoint} disabled={!pricePoint.label.trim() || pricePoint.price === ""}>
               Record the price
-            </Btn>
-            <Btn
-              onClick={async () => {
-                const s = data.stock;
-                setDiscordState(
-                  await sendToDiscord(
-                    data.company.ticker + " at $" + dec(s.price),
-                    "Last traded $" + dec(s.price) + " (previous close $" + dec(s.prevClose) + "). Market capital " + compact(s.price * s.shares) + "."
-                  )
-                );
-              }}
-            >
-              Push price to Discord
             </Btn>
           </div>
           <div className="mt-4">
@@ -2457,7 +2448,7 @@ function ControlRoom({ data, save, level, session }) {
         <SectionHead
           index="III"
           title="Discord"
-          note="Add one webhook per channel (Channel settings, Integrations, Webhooks). Each one takes only the posts you point at it, so the shift log does not have to land in the announcements channel. Client desk requests never go to Discord — they stay on the staff room board. Anyone with executive access can see these URLs, so treat them as shared company secrets and reset any that leak."
+          note="Add one webhook per channel (Channel settings, Integrations, Webhooks) and a notice goes to all of them. Posting a notice is the only thing on this site that reaches Discord — client requests, shift logs and job applications stay on their boards here. Anyone with executive access can see these URLs, so treat them as shared company secrets and reset any that leak."
         />
         <Panel style={{ padding: 20 }}>
           <ListEditor
@@ -2467,7 +2458,7 @@ function ControlRoom({ data, save, level, session }) {
             onChange={(v) => set("discord.hooks", v)}
             fields={[
               { k: "name", label: "Label" },
-              { k: "events", label: "What it receives", options: HOOK_EVENTS },
+              { k: "events", label: "What it receives", options: HOOK_EVENTS, hint: "Only notices are sent, so both settings behave the same." },
               { k: "url", label: "Webhook URL", full: true },
               { k: "channel", label: "Channel it posts to" },
             ]}

@@ -3,7 +3,6 @@ import { ensureData } from "@/lib/seed";
 import { writeData } from "@/lib/store";
 import { getSession } from "@/lib/auth";
 import { levelOf, LEVEL, effectiveRole } from "@/lib/roles";
-import { postToDiscord } from "@/lib/discord";
 import {
   rateLimit,
   tooMany,
@@ -78,15 +77,10 @@ export async function POST(req) {
   data.shifts = [...(data.shifts || []), entry].slice(-200);
   await writeData(data);
 
-  await postToDiscord(data, {
-    event: "Shift log",
-    title: `Shift logged — ${entry.username}`,
-    body:
-      `**${entry.occupation}**\n${entry.timeIn} → ${entry.timeOut}` +
-      (entry.output ? `\n\n${entry.output}` : ""),
-    footer: entry.ts + " · filed by " + entry.account,
-    color: 0x1c7554,
-  });
+  // No Discord post. Posting a notice is the only thing on this site that is
+  // allowed to reach a webhook; a shift is filed several times a day and would
+  // bury the channel. It lands in the staff room, which is where payroll is
+  // worked out from anyway.
 
   return NextResponse.json(
     { ok: true },
