@@ -37,13 +37,52 @@ const F = {
 };
 
 
-const LEVEL = { public: 0, client: 1, staff: 2, exec: 3 };
+const LEVEL = { public: 0, member: 0, client: 1, staff: 2, exec: 3 };
 const ROLE_NAME = {
   public: "Visitor",
+  member: "Member",
   client: "Client",
   staff: "Staff",
   exec: "Executive",
 };
+const ROLE_BLURB = {
+  member: "You have an account, but no company access yet. An executive can raise it.",
+  client: "You can see the rate card, client projects and the request desk.",
+  staff: "You can see the balance sheet, internal notes and incoming requests.",
+  exec: "You can edit the company record and manage accounts.",
+};
+
+const ROLE_TABS = [
+  { key: "member", label: "Member", hint: "Signed in, sees only public material" },
+  { key: "client", label: "Client", hint: "Rate card, client projects, request desk" },
+  { key: "staff", label: "Staff", hint: "Balance sheet, internal notes, requests" },
+  { key: "exec", label: "Exec", hint: "Full control of the company record" },
+];
+
+const PREFS_KEY = "ucc:prefs";
+const DEFAULT_PREFS = { fullFigures: false, landingTab: "Overview" };
+
+function loadPrefs() {
+  if (typeof window === "undefined") return { ...DEFAULT_PREFS };
+  try {
+    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") };
+  } catch (e) {
+    return { ...DEFAULT_PREFS };
+  }
+}
+
+function savePrefs(prefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch (e) {
+    /* preferences just will not persist */
+  }
+}
+
+// Read by compact() below. Set from App whenever preferences change, so the
+// formatting switch reaches every figure on the page without threading a prop
+// through every component.
+let FULL_FIGURES = false;
 
 /* ----------------------------- seed data ----------------------------- */
 
@@ -54,6 +93,7 @@ const money = (n) =>
 
 const compact = (n) => {
   const v = Number(n) || 0;
+  if (FULL_FIGURES) return money(v);
   if (Math.abs(v) >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
   if (Math.abs(v) >= 1e3) return "$" + (v / 1e3).toFixed(0) + "K";
   return "$" + v.toFixed(0);
@@ -881,7 +921,7 @@ function LockedNote({ what, who }) {
         className="mt-2"
         style={{ fontFamily: F.body, fontSize: 14.5, color: C.ink, lineHeight: 1.6 }}
       >
-        Sign in to see {what}. Open to {who}. Ask in the company Discord for a code.
+        Sign in to see {what}. Open to {who}. Create an account from the sign-in button, then ask an executive in the company Discord to raise your access.
       </p>
     </Panel>
   );
@@ -1390,11 +1430,13 @@ function StaffRoom({ data, level }) {
 
 /* ----------------------------- control room ----------------------------- */
 
-function Accounts() {
+function Accounts({ session }) {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ username: "", password: "", role: "client" });
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyUser, setBusyUser] = useState(null);
+  const me = session?.username;
 
   const refresh = useCallback(async () => {
     try {
@@ -1438,38 +1480,125 @@ function Accounts() {
     }
   };
 
+  const setRole = async (username, role) => {
+    setMsg("");
+    setBusyUser(username);
+    const before = users;
+    // Show it immediately, put it back if the server disagrees.
+    setUsers(users.map((u) => (u.username === username ? { ...u, role } : u)));
+    try {
+      const r = await api("/api/users", {
+        method: "PATCH",
+        body: JSON.stringify({ username, role }),
+      });
+      setUsers(r.users);
+      setMsg(username + " is now " + (ROLE_NAME[role] || role) + ".");
+    } catch (e) {
+      setUsers(before);
+      setMsg(e.message);
+    } finally {
+      setBusyUser(null);
+    }
+  };
+
   return (
     <Panel style={{ padding: 20 }}>
       <div className="space-y-2 mb-6">
         {users.map((u) => (
           <div
             key={u.username}
-            className="flex flex-wrap items-center gap-3 py-2"
+            className="py-3"
             style={{ borderBottom: `1px solid ${C.paperLine}` }}
           >
-            <span style={{ fontFamily: F.mono, fontSize: 13.5, color: C.ink }}>
-              {u.username}
-            </span>
-            <span
-              style={{
-                fontFamily: F.mono,
-                fontSize: 9.5,
-                letterSpacing: "0.16em",
-                textTransform: "uppercase",
-                padding: "3px 7px",
-                color: C.paper,
-                background:
-                  u.role === "exec" ? C.seal : u.role === "staff" ? C.ledger : C.inkSoft,
-              }}
-            >
-              {u.role}
-            </span>
-            <span style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft }}>
-              added {u.added || "—"}
-            </span>
-            <span className="ml-auto">
-              <Btn onClick={() => remove(u.username)}>Remove</Btn>
-            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <span style={{ fontFamily: F.mono, fontSize: 13.5, color: C.ink }}>
+                {u.username}
+              </span>
+              {u.username === me && (
+                <span
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 9.5,
+                    letterSpacing: "0.16em",
+                    textTransform: "uppercase",
+                    color: C.gold,
+                  }}
+                >
+                  you
+                </span>
+              )}
+              <span style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft }}>
+                added {u.added || "—"}
+              </span>
+              {busyUser === u.username && (
+                <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.ledger }}>
+                  saving…
+                </span>
+              )}
+              <span className="ml-auto">
+                <Btn onClick={() => remove(u.username)} disabled={u.username === me}>
+                  Remove
+                </Btn>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 9.5,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: C.inkSoft,
+                }}
+              >
+                Access
+              </span>
+              <div className="flex" style={{ border: `1px solid ${C.rule}` }}>
+                {ROLE_TABS.map((r, i) => {
+                  const active = u.role === r.key;
+                  const locked = u.username === me;
+                  return (
+                    <button
+                      key={r.key}
+                      onClick={() => {
+                        if (!active && !locked) setRole(u.username, r.key);
+                      }}
+                      disabled={locked || busyUser === u.username}
+                      title={
+                        locked
+                          ? "You cannot change your own access level"
+                          : r.hint
+                      }
+                      style={{
+                        fontFamily: F.mono,
+                        fontSize: 10,
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
+                        padding: "6px 11px",
+                        border: "none",
+                        borderRight:
+                          i < ROLE_TABS.length - 1 ? `1px solid ${C.rule}` : "none",
+                        cursor: locked ? "not-allowed" : active ? "default" : "pointer",
+                        opacity: locked ? 0.45 : 1,
+                        background: active
+                          ? r.key === "exec"
+                            ? C.seal
+                            : r.key === "staff"
+                            ? C.ledger
+                            : r.key === "client"
+                            ? C.ink
+                            : C.inkSoft
+                          : "transparent",
+                        color: active ? C.paper : C.inkSoft,
+                      }}
+                    >
+                      {r.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         ))}
         {users.length === 0 && (
@@ -1509,7 +1638,7 @@ function Accounts() {
         <Field
           label="Access"
           value={form.role}
-          options={["client", "staff", "exec"]}
+          options={["member", "client", "staff", "exec"]}
           onChange={(v) => setForm({ ...form, role: v })}
         />
       </div>
@@ -1526,15 +1655,21 @@ function Accounts() {
         )}
       </div>
       <p className="mt-4" style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.55 }}>
-        Using an existing username replaces that account's password and access
-        level. Passwords are stored hashed — nobody, including you, can read them
-        back, so reissue rather than look up.
+        Change someone's access with the dropdown on their row — it takes effect
+        immediately and does not touch their password. Your own row is locked, so
+        you cannot lock yourself out; ask another executive if you need your own
+        level changed.
+      </p>
+      <p className="mt-3" style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.55 }}>
+        Using an existing username in the form below replaces that account's
+        password as well. Passwords are stored hashed — nobody, including you,
+        can read them back, so reissue rather than look up.
       </p>
     </Panel>
   );
 }
 
-function ControlRoom({ data, save, level }) {
+function ControlRoom({ data, save, level, session }) {
   const [pricePoint, setPricePoint] = useState({ label: "", price: "" });
   const [post, setPost] = useState({ title: "", body: "", audience: "public", author: "Executive", toDiscord: true });
   const [discordState, setDiscordState] = useState("");
@@ -1812,7 +1947,7 @@ function ControlRoom({ data, save, level }) {
           title="Accounts"
           note="Everyone who can sign in. Remove an account the day someone leaves the company — that is the only thing that actually revokes their access."
         />
-        <Accounts />
+        <Accounts session={session} />
       </section>
     </div>
   );
@@ -1820,19 +1955,85 @@ function ControlRoom({ data, save, level }) {
 
 /* ----------------------------- sign in ----------------------------- */
 
-function SignIn({ onClose, onSignedIn }) {
-  const [form, setForm] = useState({ username: "", password: "" });
+function PasswordInput({ label, value, onChange, onEnter, hint }) {
+  return (
+    <label className="block mb-3">
+      <div className="mb-1"><Eyebrow>{label}</Eyebrow></div>
+      <input
+        type="password"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && onEnter) onEnter(); }}
+        style={{
+          width: "100%",
+          fontFamily: F.body,
+          fontSize: 14,
+          color: C.ink,
+          background: "rgba(255,255,255,0.7)",
+          border: `1px solid ${C.rule}`,
+          padding: "8px 10px",
+          outline: "none",
+        }}
+      />
+      {hint && (
+        <div style={{ fontFamily: F.body, fontSize: 11.5, color: C.inkSoft, marginTop: 4 }}>
+          {hint}
+        </div>
+      )}
+    </label>
+  );
+}
+
+function Modal({ onClose, children, wide }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
+      style={{ background: "rgba(16,35,63,0.55)" }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="my-8"
+        style={{
+          background: C.paper,
+          border: `2px solid ${C.ink}`,
+          maxWidth: wide ? 560 : 430,
+          width: "100%",
+        }}
+      >
+        <Guilloche height={10} />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function AuthModal({ onClose, onSignedIn, signupOpen, startMode }) {
+  const [mode, setMode] = useState(startMode || "signin");
+  const [form, setForm] = useState({ username: "", password: "", confirm: "" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const attempt = async () => {
-    setBusy(true);
+  const registering = mode === "register";
+
+  const submit = async () => {
     setErr("");
+    if (registering && form.password !== form.confirm) {
+      setErr("The two passwords do not match.");
+      return;
+    }
+    setBusy(true);
     try {
-      const session = await api("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify(form),
-      });
+      const session = await api(
+        registering ? "/api/auth/register" : "/api/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            username: form.username,
+            password: form.password,
+          }),
+        }
+      );
       onSignedIn(session);
     } catch (e) {
       setErr(e.message);
@@ -1841,39 +2042,338 @@ function SignIn({ onClose, onSignedIn }) {
     }
   };
 
+  const ready =
+    form.username.trim() &&
+    form.password &&
+    (!registering || form.confirm);
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(16,35,63,0.55)" }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: C.paper, border: `2px solid ${C.ink}`, maxWidth: 420, width: "100%" }}
-      >
-        <Guilloche height={10} />
-        <div className="p-7">
-          <Eyebrow color={C.gold}>Access</Eyebrow>
-          <h2 className="mt-2" style={{ fontFamily: F.display, fontSize: 30, color: C.ink, lineHeight: 1.05 }}>
-            Sign in
-          </h2>
-          <p className="mt-2" style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}>
-            Clients, staff and executives each get their own account. Everything
-            else on this site is public.
-          </p>
-          <div className="mt-5">
-            <Field
-              label="Username"
-              value={form.username}
-              onChange={(v) => { setForm({ ...form, username: v }); setErr(""); }}
+    <Modal onClose={onClose}>
+      <div className="p-7">
+        <Eyebrow color={C.gold}>Access</Eyebrow>
+        <h2 className="mt-2" style={{ fontFamily: F.display, fontSize: 30, color: C.ink, lineHeight: 1.05 }}>
+          {registering ? "Create an account" : "Sign in"}
+        </h2>
+        <p className="mt-2" style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}>
+          {registering
+            ? "A new account can sign in and follow the company. Access to client or staff material is granted separately by an executive."
+            : "Clients, staff and executives each get their own account. Everything else on this site is public."}
+        </p>
+
+        <div className="mt-5">
+          <Field
+            label="Username"
+            value={form.username}
+            onChange={(v) => { setForm({ ...form, username: v }); setErr(""); }}
+          />
+          <PasswordInput
+            label="Password"
+            value={form.password}
+            onChange={(v) => { setForm({ ...form, password: v }); setErr(""); }}
+            onEnter={registering ? undefined : submit}
+            hint={registering ? "At least 8 characters. Do not reuse a password from anywhere that matters." : null}
+          />
+          {registering && (
+            <PasswordInput
+              label="Password again"
+              value={form.confirm}
+              onChange={(v) => { setForm({ ...form, confirm: v }); setErr(""); }}
+              onEnter={submit}
             />
-            <label className="block mb-3">
-              <div className="mb-1"><Eyebrow>Password</Eyebrow></div>
-              <input
-                type="password"
-                value={form.password}
-                onChange={(e) => { setForm({ ...form, password: e.target.value }); setErr(""); }}
-                onKeyDown={(e) => { if (e.key === "Enter") attempt(); }}
+          )}
+        </div>
+
+        {err && (
+          <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+            {err}
+          </p>
+        )}
+
+        <div className="flex gap-3 flex-wrap">
+          <Btn variant="solid" onClick={submit} disabled={busy || !ready}>
+            {busy ? "Working…" : registering ? "Create account" : "Sign in"}
+          </Btn>
+          <Btn onClick={onClose}>Cancel</Btn>
+        </div>
+
+        {signupOpen !== false && (
+          <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.rule}` }}>
+            <button
+              onClick={() => { setMode(registering ? "signin" : "register"); setErr(""); }}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                fontFamily: F.mono,
+                fontSize: 11,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: C.ledger,
+                textDecoration: "underline",
+              }}
+            >
+              {registering ? "I already have an account" : "Create an account instead"}
+            </button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function AccountPage({ session, onSignedOut, onOpenSettings }) {
+  const [profile, setProfile] = useState(null);
+  const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirm: "" });
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api("/api/account").then(setProfile).catch((e) => setErr(e.message));
+  }, []);
+
+  const change = async () => {
+    setErr("");
+    setMsg("");
+    if (form.newPassword !== form.confirm) {
+      setErr("The two new passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api("/api/account", {
+        method: "POST",
+        body: JSON.stringify({
+          currentPassword: form.currentPassword,
+          newPassword: form.newPassword,
+        }),
+      });
+      setMsg("Password changed.");
+      setForm({ currentPassword: "", newPassword: "", confirm: "" });
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const role = profile?.role || session.role;
+
+  return (
+    <div className="space-y-10">
+      <section>
+        <SectionHead index="I" title="Your account" />
+        <Panel style={{ padding: 20 }}>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div>
+              <Eyebrow>Username</Eyebrow>
+              <div style={{ fontFamily: F.mono, fontSize: 16, color: C.ink, marginTop: 5 }}>
+                {session.username}
+              </div>
+            </div>
+            <div>
+              <Eyebrow>Access</Eyebrow>
+              <div style={{ fontFamily: F.mono, fontSize: 16, color: C.ledger, marginTop: 5 }}>
+                {ROLE_NAME[role] || role}
+              </div>
+            </div>
+            <div>
+              <Eyebrow>Account opened</Eyebrow>
+              <div style={{ fontFamily: F.mono, fontSize: 16, color: C.ink, marginTop: 5 }}>
+                {profile?.added || "—"}
+              </div>
+            </div>
+          </div>
+          <p className="mt-4" style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.6 }}>
+            {ROLE_BLURB[role] || "Signed in."}
+          </p>
+        </Panel>
+      </section>
+
+      <section>
+        <SectionHead
+          index="II"
+          title="Change your password"
+          note="You need your current password. Nobody at the company can read your old one — not even an executive — so if you have forgotten it, ask for the account to be reissued."
+        />
+        <Panel style={{ padding: 20, maxWidth: 460 }}>
+          <PasswordInput
+            label="Current password"
+            value={form.currentPassword}
+            onChange={(v) => { setForm({ ...form, currentPassword: v }); setErr(""); }}
+          />
+          <PasswordInput
+            label="New password"
+            value={form.newPassword}
+            onChange={(v) => { setForm({ ...form, newPassword: v }); setErr(""); }}
+            hint="At least 8 characters."
+          />
+          <PasswordInput
+            label="New password again"
+            value={form.confirm}
+            onChange={(v) => { setForm({ ...form, confirm: v }); setErr(""); }}
+            onEnter={change}
+          />
+          <div className="flex items-center gap-4 flex-wrap">
+            <Btn
+              variant="solid"
+              onClick={change}
+              disabled={busy || !form.currentPassword || form.newPassword.length < 8}
+            >
+              {busy ? "Saving…" : "Change password"}
+            </Btn>
+            {msg && <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}>{msg}</span>}
+            {err && <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>{err}</span>}
+          </div>
+        </Panel>
+      </section>
+
+      <section>
+        <SectionHead index="III" title="This session" />
+        <div className="flex gap-3 flex-wrap">
+          <Btn onClick={onOpenSettings}>Open settings</Btn>
+          <Btn variant="seal" onClick={onSignedOut}>Sign out</Btn>
+        </div>
+        <p className="mt-4 max-w-xl" style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.6 }}>
+          Signing in lasts a week on this device. If you have signed in
+          somewhere you do not control, sign out there rather than relying on
+          it expiring.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function SettingsModal({ onClose, session, data, save, prefs, setPrefs, onGoAccount, onSignOut, onSignIn }) {
+  const level = LEVEL[session.role] ?? 0;
+  const settings = data?.settings || {};
+
+  const update = (patch) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    savePrefs(next);
+  };
+
+  const updateCompany = (patch) => {
+    save({ ...data, settings: { ...settings, ...patch } });
+  };
+
+  const Toggle = ({ label, note, checked, onChange }) => (
+    <label className="flex items-start gap-3 py-3" style={{ borderTop: `1px solid ${C.paperLine}`, cursor: "pointer" }}>
+      <input
+        type="checkbox"
+        checked={Boolean(checked)}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ marginTop: 3 }}
+      />
+      <span>
+        <span style={{ fontFamily: F.body, fontSize: 14, color: C.ink }}>{label}</span>
+        {note && (
+          <span className="block" style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.5 }}>
+            {note}
+          </span>
+        )}
+      </span>
+    </label>
+  );
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="p-7">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <Eyebrow color={C.gold}>Settings</Eyebrow>
+            <h2 className="mt-2" style={{ fontFamily: F.display, fontSize: 28, color: C.ink, lineHeight: 1.05 }}>
+              {session.username || "Preferences"}
+            </h2>
+          </div>
+          <Btn onClick={onClose}>Close</Btn>
+        </div>
+
+        <div className="mt-6">
+          <Eyebrow>Display</Eyebrow>
+          <Toggle
+            label="Show figures in full"
+            note="$1,680,000 instead of $1.68M, everywhere on the site."
+            checked={prefs.fullFigures}
+            onChange={(v) => update({ fullFigures: v })}
+          />
+          <label className="block pt-3" style={{ borderTop: `1px solid ${C.paperLine}` }}>
+            <div className="mb-1"><Eyebrow>Open on this tab</Eyebrow></div>
+            <select
+              value={prefs.landingTab}
+              onChange={(e) => update({ landingTab: e.target.value })}
+              style={{
+                width: "100%",
+                fontFamily: F.body,
+                fontSize: 14,
+                color: C.ink,
+                background: "rgba(255,255,255,0.7)",
+                border: `1px solid ${C.rule}`,
+                padding: "8px 10px",
+                outline: "none",
+              }}
+            >
+              {["Overview", "Share", "Financials", "People", "Projects"].map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <div style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft, marginTop: 4 }}>
+              Saved on this device only.
+            </div>
+          </label>
+        </div>
+
+        <div className="mt-8">
+          <Eyebrow>Account</Eyebrow>
+          {session.username ? (
+            <>
+              <div className="flex items-center gap-3 py-3" style={{ borderTop: `1px solid ${C.paperLine}` }}>
+                <span style={{ fontFamily: F.mono, fontSize: 13.5, color: C.ink }}>
+                  {session.username}
+                </span>
+                <span
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 9.5,
+                    letterSpacing: "0.16em",
+                    textTransform: "uppercase",
+                    padding: "3px 7px",
+                    color: C.paper,
+                    background:
+                      session.role === "exec" ? C.seal : session.role === "staff" ? C.ledger : C.inkSoft,
+                  }}
+                >
+                  {ROLE_NAME[session.role]}
+                </span>
+              </div>
+              <div className="flex gap-3 flex-wrap mt-1">
+                <Btn onClick={onGoAccount}>Change password</Btn>
+                <Btn variant="seal" onClick={onSignOut}>Sign out</Btn>
+              </div>
+            </>
+          ) : (
+            <div className="flex gap-3 flex-wrap pt-3" style={{ borderTop: `1px solid ${C.paperLine}` }}>
+              <Btn variant="solid" onClick={onSignIn}>Sign in or create an account</Btn>
+            </div>
+          )}
+        </div>
+
+        {level >= LEVEL.exec && (
+          <div className="mt-8">
+            <Eyebrow color={C.seal}>Company — executives only</Eyebrow>
+            <Toggle
+              label="Let anyone create an account"
+              note="Turn this off and only executives can make accounts, from the control room."
+              checked={settings.signupOpen !== false}
+              onChange={(v) => updateCompany({ signupOpen: v })}
+            />
+            <label className="block pt-3" style={{ borderTop: `1px solid ${C.paperLine}` }}>
+              <div className="mb-1"><Eyebrow>New accounts start as</Eyebrow></div>
+              <select
+                value={settings.signupRole || "member"}
+                onChange={(e) => updateCompany({ signupRole: e.target.value })}
                 style={{
                   width: "100%",
                   fontFamily: F.body,
@@ -1884,23 +2384,20 @@ function SignIn({ onClose, onSignedIn }) {
                   padding: "8px 10px",
                   outline: "none",
                 }}
-              />
+              >
+                <option value="member">Member — signed in, sees only public material</option>
+                <option value="client">Client — rate card, client projects, request desk</option>
+              </select>
+              <div style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, marginTop: 6, lineHeight: 1.5 }}>
+                Leave this on Member unless you genuinely want any stranger who
+                signs up to see client material. Promoting people one at a time
+                in the control room is the safer habit.
+              </div>
             </label>
           </div>
-          {err && (
-            <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
-              {err}
-            </p>
-          )}
-          <div className="flex gap-3">
-            <Btn variant="solid" onClick={attempt} disabled={busy || !form.username.trim() || !form.password}>
-              {busy ? "Checking…" : "Sign in"}
-            </Btn>
-            <Btn onClick={onClose}>Cancel</Btn>
-          </div>
-        </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1911,9 +2408,19 @@ export default function App() {
   const [session, setSession] = useState({ username: null, role: "public" });
   const [tab, setTab] = useState("Overview");
   const [showSignIn, setShowSignIn] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [prefs, setPrefs] = useState(DEFAULT_PREFS);
   const [status, setStatus] = useState("Loading the company record…");
 
   const role = session.role || "public";
+  FULL_FIGURES = Boolean(prefs.fullFigures);
+
+  useEffect(() => {
+    const p = loadPrefs();
+    setPrefs(p);
+    FULL_FIGURES = Boolean(p.fullFigures);
+    if (p.landingTab) setTab(p.landingTab);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -1952,9 +2459,10 @@ export default function App() {
   const signOut = useCallback(async () => {
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
     setSession({ username: null, role: "public" });
-    setTab("Overview");
+    setShowSettings(false);
+    setTab(prefs.landingTab || "Overview");
     await load();
-  }, [load]);
+  }, [load, prefs.landingTab]);
 
   const submitRequest = useCallback(
     async (req) => {
@@ -1976,8 +2484,11 @@ export default function App() {
       { name: "Client desk", min: 0 },
       { name: "Staff room", min: 0 },
       { name: "Control room", min: LEVEL.exec },
+      ...(session.username
+        ? [{ name: "Account", label: session.username, min: 0 }]
+        : []),
     ],
-    []
+    [session.username]
   );
 
   if (!data) {
@@ -2051,12 +2562,16 @@ export default function App() {
                 <Btn>Discord</Btn>
               </a>
             )}
-            {role === "public" ? (
+            <Btn onClick={() => setShowSettings(true)} style={{ padding: "10px 12px" }}>
+              <span aria-hidden="true">⚙</span>
+              <span className="sr-only"> Settings</span>
+            </Btn>
+            {session.username ? (
+              <Btn onClick={() => setTab("Account")}>{session.username}</Btn>
+            ) : (
               <Btn variant="solid" onClick={() => setShowSignIn(true)}>
                 Sign in
               </Btn>
-            ) : (
-              <Btn onClick={signOut}>Sign out</Btn>
             )}
           </div>
         </div>
@@ -2082,7 +2597,7 @@ export default function App() {
                     borderBottom: tab === t.name ? `2px solid ${C.gold}` : "2px solid transparent",
                   }}
                 >
-                  {t.name}
+                  {t.label || t.name}
                 </button>
               ))}
           </div>
@@ -2106,7 +2621,14 @@ export default function App() {
           <ClientDesk data={data} level={level} onSubmitRequest={submitRequest} />
         )}
         {tab === "Staff room" && <StaffRoom data={data} level={level} />}
-        {tab === "Control room" && <ControlRoom data={data} level={level} save={save} />}
+        {tab === "Control room" && <ControlRoom data={data} level={level} save={save} session={session} />}
+        {tab === "Account" && session.username && (
+          <AccountPage
+            session={session}
+            onSignedOut={signOut}
+            onOpenSettings={() => setShowSettings(true)}
+          />
+        )}
       </main>
 
       <footer style={{ borderTop: `1px solid ${C.rule}`, background: C.paperDeep }}>
@@ -2133,7 +2655,25 @@ export default function App() {
       </footer>
 
       {showSignIn && (
-        <SignIn onClose={() => setShowSignIn(false)} onSignedIn={onSignedIn} />
+        <AuthModal
+          onClose={() => setShowSignIn(false)}
+          onSignedIn={onSignedIn}
+          signupOpen={data.settings?.signupOpen !== false}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          session={session}
+          data={data}
+          save={save}
+          prefs={prefs}
+          setPrefs={setPrefs}
+          onGoAccount={() => { setShowSettings(false); setTab("Account"); }}
+          onSignOut={signOut}
+          onSignIn={() => { setShowSettings(false); setShowSignIn(true); }}
+        />
       )}
     </div>
   );

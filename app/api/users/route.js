@@ -3,7 +3,7 @@ import { ensureData } from "@/lib/seed";
 import { writeData } from "@/lib/store";
 import { getSession } from "@/lib/auth";
 import { hashPassword } from "@/lib/auth";
-import { levelOf, LEVEL } from "@/lib/roles";
+import { levelOf, LEVEL, ASSIGNABLE_ROLES, effectiveRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,8 @@ const safe = (users) =>
 
 async function requireExec() {
   const session = await getSession();
-  if (levelOf(session.role) < LEVEL.exec) return null;
+  const data = await ensureData();
+  if (levelOf(effectiveRole(data, session)) < LEVEL.exec) return null;
   return session;
 }
 
@@ -36,7 +37,7 @@ export async function POST(req) {
       { status: 400 }
     );
   }
-  if (!["client", "staff", "exec"].includes(role)) {
+  if (!ASSIGNABLE_ROLES.includes(role)) {
     return NextResponse.json({ error: "Unknown role." }, { status: 400 });
   }
 
@@ -54,6 +55,48 @@ export async function POST(req) {
     ? users.map((u) => (u.username === name ? record : u))
     : [...users, record];
 
+  await writeData(data);
+  return NextResponse.json({ users: safe(data.users) });
+}
+
+/** Change one account's access level. No password needed, role only. */
+export async function PATCH(req) {
+  const session = await requireExec();
+  if (!session) return NextResponse.json({ error: "Executives only." }, { status: 403 });
+
+  const { username = "", role = "" } = await req.json().catch(() => ({}));
+  const name = String(username).trim().toLowerCase();
+
+  if (!ASSIGNABLE_ROLES.includes(role)) {
+    return NextResponse.json({ error: "Unknown access level." }, { status: 400 });
+  }
+
+  if (name === session.username) {
+    return NextResponse.json(
+      {
+        error:
+          "You cannot change your own access level. Ask another executive, so nobody locks themselves out.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const data = await ensureData();
+  const users = data.users || [];
+  if (!users.some((u) => u.username === name)) {
+    return NextResponse.json({ error: "No such account." }, { status: 404 });
+  }
+
+  const updated = users.map((u) => (u.username === name ? { ...u, role } : u));
+
+  if (!updated.some((u) => u.role === "exec")) {
+    return NextResponse.json(
+      { error: "The company needs at least one executive account." },
+      { status: 400 }
+    );
+  }
+
+  data.users = updated;
   await writeData(data);
   return NextResponse.json({ users: safe(data.users) });
 }

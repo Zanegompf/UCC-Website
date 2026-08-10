@@ -2,14 +2,15 @@ import { NextResponse } from "next/server";
 import { ensureData } from "@/lib/seed";
 import { writeData } from "@/lib/store";
 import { getSession } from "@/lib/auth";
-import { levelOf, LEVEL } from "@/lib/roles";
+import { levelOf, LEVEL, effectiveRole } from "@/lib/roles";
 import { postToDiscord } from "@/lib/discord";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req) {
   const session = await getSession();
-  if (levelOf(session.role) < LEVEL.client) {
+  const stored = await ensureData();
+  if (levelOf(effectiveRole(stored, session)) < LEVEL.client) {
     return NextResponse.json({ error: "Sign in to use the client desk." }, { status: 403 });
   }
 
@@ -31,7 +32,7 @@ export async function POST(req) {
     account: session.username,
   };
 
-  const data = await ensureData();
+  const data = stored;
   data.requests = [...(data.requests || []), entry].slice(-200);
   await writeData(data);
 

@@ -209,7 +209,17 @@ open `localhost:3000`.
 
 ## How permissions actually work
 
-There are four levels: **visitor, client, staff, executive**.
+There are five levels: **visitor, member, client, staff, executive**.
+
+**Member** is what anyone gets when they create their own account from the
+sign-in box. They can sign in, but they see exactly what a visitor sees. That
+is deliberate: making an account should not hand a stranger your rate card or
+your client project list. Promote people to client or staff yourself, in
+Control room → Accounts.
+
+You can turn self-registration off entirely, or change what new accounts get,
+in **Settings → Company**. Leave the default on Member unless you have a
+reason not to.
 
 The important part is *where* the filtering happens. When anyone loads the
 site, the server decides what they are allowed to see and strips everything
@@ -218,28 +228,51 @@ balance sheet, the internal staff notes, the client rate card or the hidden
 projects — not hidden with CSS, not present at all. Opening developer tools
 shows them nothing extra.
 
-| | Visitor | Client | Staff | Executive |
-|---|---|---|---|---|
-| Mission, share price, public projects | yes | yes | yes | yes |
-| Revenue, expenses, totals | yes | yes | yes | yes |
-| Rate card and the client desk | — | yes | yes | yes |
-| Client-only projects | — | yes | yes | yes |
-| Balance sheet, internal staff notes | — | — | yes | yes |
-| Incoming client requests | — | — | yes | yes |
-| Editing anything, accounts, webhook | — | — | — | yes |
+| | Visitor | Member | Client | Staff | Executive |
+|---|---|---|---|---|---|
+| Mission, share price, public projects | yes | yes | yes | yes | yes |
+| Revenue, expenses, totals | yes | yes | yes | yes | yes |
+| Change own password, settings | — | yes | yes | yes | yes |
+| Rate card and the client desk | — | — | yes | yes | yes |
+| Client-only projects | — | — | yes | yes | yes |
+| Balance sheet, internal staff notes | — | — | — | yes | yes |
+| Incoming client requests | — | — | — | yes | yes |
+| Editing anything, accounts, webhook | — | — | — | — | yes |
 
 Passwords are hashed with bcrypt, so nobody can read them back out of the
 database — not even you. If someone forgets theirs, reissue it in Control room
 → Accounts.
 
-Sessions last a week and live in a signed, http-only cookie.
+Sessions last a week and live in a signed, http-only cookie. Anyone can change
+their own password from the tab with their username on it, which asks for the
+current one first. Since passwords are hashed, a forgotten password cannot be
+looked up — reissue it in Control room → Accounts instead.
+
+**Changing someone's access level takes effect immediately**, on whatever
+device they are already signed in on. In Control room → Accounts, each account
+has a row of access tabs — Member, Client, Staff, Exec — and clicking one
+changes their level straight away. Deleting an account cuts them off just as
+fast. The site checks the stored account on every request rather than trusting
+what their login cookie says, so a demotion is real the moment you make it.
+
+Two guardrails: you cannot change your own access level (ask another
+executive), and the last executive account cannot be demoted or deleted. Both
+exist so nobody locks themselves out of their own company.
+
+One limitation worth knowing: changing a *password* does not sign that person
+out on their other devices, because the session itself is stateless. If an
+account is genuinely compromised, delete it — that does cut off every device —
+rather than only changing the password.
 
 ---
 
 ## Housekeeping
 
 - **When someone leaves the company, delete their account.** That is the only
-  thing that actually removes their access. Changing what a page says does not.
+  thing that actually removes their access. Changing what a page says does not,
+  and neither does demoting them if they still know the password.
+- If you open self-registration, check the account list now and then. Anyone
+  can take a username, and usernames are first-come.
 - Tell people to use a password they do not use anywhere else. This is a
   Minecraft roleplay site, not a bank, and it should never hold a password that
   protects anything real.
