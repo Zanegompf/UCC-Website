@@ -32,13 +32,15 @@ const EDITABLE = [
   "announcements",
   "requests",
   "shifts",
+  "applications",
+  "jobs",
   "discord",
   "settings",
 ];
 
 // PUT replaces these lists wholesale, so the caps that the append routes apply
 // have to be reapplied here too.
-const CAPS = { requests: 200, announcements: 60, shifts: 200 };
+const CAPS = { requests: 200, announcements: 60, shifts: 200, applications: 200 };
 
 export async function GET() {
   try {

@@ -46,6 +46,7 @@ app/
     users/          GET list, POST create/replace, PATCH role only, DELETE (all exec)
     requests/       POST client desk submission
     shifts/         POST staff shift log entry (staff+)
+    applications/   POST job application (any signed-in account, incl. member)
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
@@ -66,9 +67,12 @@ bot/
 process.** The UI mirrors the decision; it never makes it.
 
 - `filterData(data, level)` strips: `users` and `codes` always; the balance
-  sheet, internal staff notes, client requests and the shift log below staff;
-  the rate card below client; the Discord webhooks below exec; plus projects and
-  announcements whose `visibility` / `audience` outranks the viewer.
+  sheet, internal staff notes, client requests, the shift log and job
+  applications below staff; the rate card below client; the Discord webhooks
+  below exec; plus projects and announcements whose `visibility` / `audience`
+  outranks the viewer.
+- `jobs` is deliberately **public**: the application form on the front page has
+  to render its dropdown for people who do not work here yet.
 - Below exec it **replaces `discord` wholesale** with `{channel}` rather than
   deleting named keys. That is what keeps every URL in `hooks[]` off the wire as
   the list grows — do not soften it into `delete d.discord.webhook`.
@@ -96,6 +100,7 @@ whether the request gets that far at all. It is not a substitute for the above.
 | password change | 10 / 15 min | failures only |
 | client desk | 10 / hour per account | all |
 | shift log | 30 / hour per account | all |
+| applications | 5 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
 | bot key | 10 / 10 min per IP | wrong keys only |
 
@@ -147,6 +152,8 @@ services[]{name,price,detail}
 announcements[]{ts,author,audience,title,body}
 requests[]{ts,from,contact,type,detail,status,account}
 shifts[]{ts,username,occupation,timeIn,timeOut,output,account}
+applications[]{ts,username,discord,role,wage,experience,references,notes,status,account}
+jobs[]{name,category}                              <- public; the dropdown reads it
 discord{webhook,channel,guild,hooks[]{name,url,channel,events}}
 users[]{username,role,passwordHash,added,self}     <- never sent to a client
 settings{signupOpen,signupRole}
@@ -165,6 +172,24 @@ reaches the hooks that asked for its kind, so the shift log does not land in
 the announcements channel. `"All posts"` on a hook means it takes everything;
 passing `"All posts"` *as the event* is a broadcast to every hook, which is
 what the control room's test button uses.
+
+## Hiring
+
+`POST /api/applications` gates on `effectiveRole(...) !== "public"`, **not** on a
+level. `member` sits at level 0 alongside a visitor, and a member must be able
+to apply — the point of an application is that the person does not work here
+yet. The account requirement is what stops it being an anonymous spam endpoint;
+self-registration is one click from the sign-in button.
+
+Applications do not post to Discord, for the same reason requests do not.
+
+`jobs` is seeded from the DemocracyCraft wiki's job list (trades, professions,
+government, licences, legal licences) and is exec-editable in the control room,
+because the server changes it and that should not need a deploy. `ensureData()`
+re-seeds it when the list is missing **or empty**, so an old record does not
+leave the form with nothing to pick.
+
+## Discord posting
 
 Only two things post: **notices** (`Announcements`) and the **shift log**.
 Client desk requests deliberately do not — they name a client and arrive
@@ -360,9 +385,10 @@ Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
 - Usernames are first-come; there is no verification that a username matches the
   Minecraft account.
 - No audit log of privileged actions.
-- `requests`, `announcements` and `shifts` are capped (200 / 60 / 200) by slicing
-  on write. The shift log is a rolling window, not a payroll archive — once it
-  passes 200 entries the oldest fall off and are gone.
+- `requests`, `announcements`, `shifts` and `applications` are capped
+  (200 / 60 / 200 / 200) by slicing on write. The shift log and the hiring board
+  are rolling windows, not archives — past the cap the oldest fall off and are
+  gone.
 - Concurrent exec edits are last-write-wins across the whole blob.
 
 ## House rules for changes

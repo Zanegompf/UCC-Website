@@ -311,7 +311,12 @@ function Btn({ children, onClick, variant, type, style, disabled }) {
   );
 }
 
-function Field({ label, value, onChange, type, rows, placeholder, options }) {
+/**
+ * `options` is a flat list. `groups` is [{label, items[]}] and renders
+ * optgroups instead — the job list needs it, since the server publishes its
+ * jobs under trades, professions, government and licences.
+ */
+function Field({ label, value, onChange, type, rows, placeholder, options, groups, hint }) {
   const shared = {
     width: "100%",
     fontFamily: type === "number" ? F.mono : F.body,
@@ -327,7 +332,24 @@ function Field({ label, value, onChange, type, rows, placeholder, options }) {
       <div className="mb-1">
         <Eyebrow>{label}</Eyebrow>
       </div>
-      {options ? (
+      {groups ? (
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          style={shared}
+        >
+          <option value="">—</option>
+          {groups.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.items.map((o) => (
+                <option key={g.label + o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      ) : options ? (
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -363,6 +385,14 @@ function Field({ label, value, onChange, type, rows, placeholder, options }) {
           }
           style={shared}
         />
+      )}
+      {hint && (
+        <div
+          className="mt-1"
+          style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}
+        >
+          {hint}
+        </div>
       )}
     </label>
   );
@@ -731,7 +761,167 @@ function ListEditor({ title, items, fields, blank, onChange }) {
 
 /* ----------------------------- sections ----------------------------- */
 
-function Overview({ data, level }) {
+const BLANK_APPLICATION = {
+  username: "",
+  discord: "",
+  role: "",
+  wage: "",
+  experience: "",
+  references: "",
+  notes: "",
+};
+
+/**
+ * The hiring form on the front page. Deliberately one column: it is a form
+ * somebody fills top to bottom, and pairing the fields would only make the
+ * short ones look like they belong together.
+ */
+function ApplicationForm({ data, session, onSubmit, onSignIn }) {
+  const [form, setForm] = useState({
+    ...BLANK_APPLICATION,
+    username: session?.username || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  // The server publishes its jobs under these headings, so the dropdown keeps
+  // them rather than flattening everything into one long list.
+  const groups = useMemo(() => {
+    const order = ["Trade", "Profession", "Government", "Licence", "Legal licence"];
+    const byCategory = new Map();
+    for (const j of data.jobs || []) {
+      if (!j?.name) continue;
+      const key = j.category || "Other";
+      if (!byCategory.has(key)) byCategory.set(key, []);
+      byCategory.get(key).push(j.name);
+    }
+    return [...byCategory.entries()]
+      .sort((a, b) => {
+        const ai = order.indexOf(a[0]);
+        const bi = order.indexOf(b[0]);
+        return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
+      })
+      .map(([label, items]) => ({ label, items }));
+  }, [data.jobs]);
+
+  if (!session?.username) {
+    return (
+      <Panel tone="deep" style={{ padding: 24 }}>
+        <p
+          className="mb-4"
+          style={{ fontFamily: F.body, fontSize: 14.5, color: C.inkSoft, lineHeight: 1.6 }}
+        >
+          Applications go through an account, so we know who we are talking to
+          and you can check back on yours. Making one takes a moment and gives
+          you nothing you did not already have as a visitor.
+        </p>
+        <Btn variant="solid" onClick={onSignIn}>
+          Sign in or create an account
+        </Btn>
+      </Panel>
+    );
+  }
+
+  if (sent) {
+    return (
+      <Panel tone="deep" style={{ padding: 24 }}>
+        <h3 style={{ fontFamily: F.display, fontSize: 24, color: C.ink }}>
+          Application filed.
+        </h3>
+        <p
+          className="mt-2"
+          style={{ fontFamily: F.body, fontSize: 14.5, color: C.inkSoft, lineHeight: 1.6 }}
+        >
+          It is on the hiring board. An executive will pick it up — expect to be
+          contacted on the handle you gave.
+        </p>
+        <div className="mt-4">
+          <Btn
+            onClick={() => {
+              setForm({ ...BLANK_APPLICATION, username: session.username });
+              setSent(false);
+            }}
+          >
+            File another
+          </Btn>
+        </div>
+      </Panel>
+    );
+  }
+
+  const ready = form.username.trim() && form.role.trim();
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit(form);
+      setSent(true);
+    } catch (e) {
+      setError(e.message);
+    }
+    setBusy(false);
+  };
+
+  const upd = (k) => (v) => setForm({ ...form, [k]: v });
+
+  return (
+    <Panel style={{ padding: 24 }}>
+      <div style={{ maxWidth: 620 }}>
+        <Field label="In-game name" value={form.username} onChange={upd("username")} placeholder="Steve" />
+        <Field label="Discord handle" value={form.discord} onChange={upd("discord")} placeholder="@steve" />
+        <Field
+          label="Desired role"
+          value={form.role}
+          onChange={upd("role")}
+          groups={groups}
+          hint="The server's job list. Pick the closest one — we will talk about the detail."
+        />
+        <Field
+          label="Desired wage or payment per item"
+          value={form.wage}
+          onChange={upd("wage")}
+          placeholder="$800 / shift, or $12 per stack of iron"
+        />
+        <Field
+          label="Previous experience"
+          rows={4}
+          value={form.experience}
+          onChange={upd("experience")}
+          placeholder="Companies you have worked for, what you did, how long."
+        />
+        <Field
+          label="References"
+          rows={3}
+          value={form.references}
+          onChange={upd("references")}
+          placeholder="Anyone on the server who will vouch for you."
+        />
+        <Field
+          label="Anything else"
+          rows={3}
+          value={form.notes}
+          onChange={upd("notes")}
+          placeholder="Hours you are usually on, what you are hoping for, questions."
+        />
+
+        {error && (
+          <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+            {error}
+          </p>
+        )}
+
+        <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
+          {busy ? "Filing…" : "Send the application"}
+        </Btn>
+      </div>
+    </Panel>
+  );
+}
+
+function Overview({ data, level, session, onSubmitApplication, onSignIn }) {
   const visible = data.announcements.filter(
     (a) => LEVEL[a.audience] <= level
   );
@@ -901,6 +1091,20 @@ function Overview({ data, level }) {
             </Panel>
           ))}
         </div>
+      </section>
+
+      <section>
+        <SectionHead
+          index="IV"
+          title="Work with us"
+          note="We hire for the trades we run and the licences we need. Tell us what you do and what you expect to be paid for it — a straight answer on money saves everyone a week."
+        />
+        <ApplicationForm
+          data={data}
+          session={session}
+          onSubmit={onSubmitApplication}
+          onSignIn={onSignIn}
+        />
       </section>
     </div>
   );
@@ -1626,6 +1830,7 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
   }
 
   const shifts = [...(data.shifts || [])].reverse();
+  const applications = [...(data.applications || [])].reverse();
 
   return (
     <div className="space-y-10">
@@ -1677,7 +1882,78 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
       </section>
 
       <section>
-        <SectionHead index="II" title="Standing orders" note="How we do things. Read before your first shift." />
+        <SectionHead
+          index="II"
+          title="Hiring board"
+          note="People who have applied to work here."
+        />
+        {applications.length === 0 ? (
+          <Panel tone="deep" style={{ padding: 20 }}>
+            <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft }}>
+              Nothing waiting. Applications from the front page land here.
+            </p>
+          </Panel>
+        ) : (
+          <div className="space-y-3">
+            {applications.map((a, i) => (
+              <Panel key={i} style={{ padding: 18 }}>
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>
+                    {a.ts}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: F.mono,
+                      fontSize: 9.5,
+                      letterSpacing: "0.16em",
+                      textTransform: "uppercase",
+                      padding: "3px 7px",
+                      background: a.status === "Hired" ? C.ledger : a.status === "Declined" ? C.seal : C.inkSoft,
+                      color: "#FFFFFF",
+                    }}
+                  >
+                    {a.status || "New"}
+                  </span>
+                  <span style={{ fontFamily: F.mono, fontSize: 12, color: C.inkSoft }}>
+                    {a.discord || "no handle given"}
+                  </span>
+                </div>
+                <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink }}>
+                  {a.username} — {a.role}
+                </h3>
+                {a.wage && (
+                  <div
+                    className="mt-1"
+                    style={{ fontFamily: F.mono, fontSize: 12.5, color: C.ledger }}
+                  >
+                    Asking {a.wage}
+                  </div>
+                )}
+                {[
+                  ["Experience", a.experience],
+                  ["References", a.references],
+                  ["Notes", a.notes],
+                ]
+                  .filter(([, v]) => v)
+                  .map(([k, v]) => (
+                    <div key={k} className="mt-3">
+                      <Eyebrow>{k}</Eyebrow>
+                      <p
+                        className="mt-1"
+                        style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
+                      >
+                        {v}
+                      </p>
+                    </div>
+                  ))}
+              </Panel>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <SectionHead index="III" title="Standing orders" note="How we do things. Read before your first shift." />
         <div className="grid md:grid-cols-2 gap-4">
           {[
             {
@@ -1722,7 +1998,7 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
 
       <section>
         <SectionHead
-          index="III"
+          index="IV"
           title="Shift log"
           note="The last shifts filed. Executives can correct entries in the control room."
         />
@@ -2316,6 +2592,29 @@ function ControlRoom({ data, save, level, session }) {
           ]}
         />
         <ListEditor
+          title="Applications"
+          items={data.applications || []}
+          blank={{ ts: "", username: "", discord: "", role: "", wage: "", experience: "", references: "", notes: "", status: "New" }}
+          onChange={(v) => set("applications", v)}
+          fields={[
+            { k: "username", label: "In-game name" },
+            { k: "status", label: "Status", options: ["New", "Interviewing", "Hired", "Declined"] },
+            { k: "role", label: "Desired role" },
+            { k: "wage", label: "Desired wage" },
+            { k: "notes", label: "Notes", full: true, rows: 2 },
+          ]}
+        />
+        <ListEditor
+          title="Job list offered on the application form"
+          items={data.jobs || []}
+          blank={{ name: "", category: "Trade" }}
+          onChange={(v) => set("jobs", v)}
+          fields={[
+            { k: "name", label: "Job" },
+            { k: "category", label: "Category", options: ["Trade", "Profession", "Government", "Licence", "Legal licence"] },
+          ]}
+        />
+        <ListEditor
           title="Shift log"
           items={data.shifts || []}
           blank={{ ts: "", username: "", occupation: "", timeIn: "", timeOut: "", output: "" }}
@@ -2869,6 +3168,17 @@ export default function App() {
     [load]
   );
 
+  const submitApplication = useCallback(
+    async (application) => {
+      await api("/api/applications", {
+        method: "POST",
+        body: JSON.stringify(application),
+      });
+      await load();
+    },
+    [load]
+  );
+
   const level = LEVEL[role] ?? 0;
 
   const tabs = useMemo(
@@ -3038,7 +3348,15 @@ export default function App() {
       {tab === "Overview" && <Hero data={data} />}
 
       <main className="max-w-6xl mx-auto px-4 py-10 md:py-16">
-        {tab === "Overview" && <Overview data={data} level={level} />}
+        {tab === "Overview" && (
+          <Overview
+            data={data}
+            level={level}
+            session={session}
+            onSubmitApplication={submitApplication}
+            onSignIn={() => setShowSignIn(true)}
+          />
+        )}
         {tab === "Share" && <ShareSection data={data} level={level} />}
         {tab === "Financials" && <Financials data={data} level={level} />}
         {tab === "People" && <People data={data} level={level} />}
