@@ -82,6 +82,16 @@ const ROLE_TABS = [
   { key: "exec", label: "Exec", hint: "Full control of the company record" },
 ];
 
+// Mirrors HOOK_EVENTS in lib/discord.js. Kept as its own copy so the server's
+// posting code stays out of the browser bundle — if you add an event there,
+// add it here too.
+const HOOK_EVENTS = [
+  "All posts",
+  "Announcements",
+  "Client requests",
+  "Shift log",
+];
+
 const PREFS_KEY = "ucc:prefs";
 const DEFAULT_PREFS = { fullFigures: false, landingTab: "Overview" };
 
@@ -1491,7 +1501,119 @@ function ClientDesk({ data, level, onSubmitRequest }) {
   );
 }
 
-function StaffRoom({ data, level }) {
+/**
+ * Clock in and out. One completed shift per submission — the times are typed
+ * rather than stamped from the clock, because people log the shift after they
+ * have finished working, not while they are stood at the keyboard.
+ */
+function ShiftModal({ onClose, onSubmit, session, data }) {
+  const [form, setForm] = useState({
+    username: session?.username || "",
+    occupation: "",
+    timeIn: "",
+    timeOut: "",
+    output: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const ready =
+    form.username.trim() &&
+    form.occupation.trim() &&
+    form.timeIn.trim() &&
+    form.timeOut.trim();
+
+  // Roles people actually hold, offered as a starting point rather than a
+  // fixed list — the divisions change and the staff table is the record.
+  const occupations = useMemo(() => {
+    const fromStaff = (data?.staff || []).map((s) => s.role).filter(Boolean);
+    const fromDivisions = (data?.divisions || []).map((d) => d.name).filter(Boolean);
+    return Array.from(new Set([...fromStaff, ...fromDivisions, "Other"]));
+  }, [data]);
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit(form);
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} wide>
+      <Eyebrow color={C.gold}>Shift log</Eyebrow>
+      <h2
+        className="mt-2 mb-1"
+        style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}
+      >
+        Clock in and out
+      </h2>
+      <p
+        className="mb-5"
+        style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
+      >
+        Payroll is worked out from this log. If it is not logged, it is not paid.
+      </p>
+
+      <div className="grid md:grid-cols-2 gap-x-5">
+        <Field
+          label="In-game name"
+          value={form.username}
+          onChange={(v) => setForm({ ...form, username: v })}
+          placeholder="Steve"
+        />
+        <Field
+          label="Occupation"
+          value={form.occupation}
+          onChange={(v) => setForm({ ...form, occupation: v })}
+          options={["", ...occupations]}
+        />
+        <Field
+          label="Time in"
+          value={form.timeIn}
+          onChange={(v) => setForm({ ...form, timeIn: v })}
+          placeholder="18:00"
+        />
+        <Field
+          label="Time out"
+          value={form.timeOut}
+          onChange={(v) => setForm({ ...form, timeOut: v })}
+          placeholder="21:30"
+        />
+      </div>
+      <Field
+        label="Resources gathered / services rendered"
+        rows={4}
+        value={form.output}
+        onChange={(v) => setForm({ ...form, output: v })}
+        placeholder="3 stacks of iron to the hub, restocked the Willow storefront."
+      />
+
+      {error && (
+        <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+          {error}
+        </p>
+      )}
+
+      <div className="flex items-center gap-3">
+        <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
+          {busy ? "Filing…" : "File the shift"}
+        </Btn>
+        <Btn onClick={onClose}>Cancel</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function StaffRoom({ data, level, session, onSubmitShift }) {
+  const [showShift, setShowShift] = useState(false);
+  const [filed, setFiled] = useState(false);
+
   if (level < LEVEL.staff) {
     return (
       <div>
@@ -1500,6 +1622,9 @@ function StaffRoom({ data, level }) {
       </div>
     );
   }
+
+  const shifts = [...(data.shifts || [])].reverse();
+
   return (
     <div className="space-y-10">
       <section>
@@ -1553,20 +1678,109 @@ function StaffRoom({ data, level }) {
         <SectionHead index="II" title="Standing orders" note="How we do things. Read before your first shift." />
         <div className="grid md:grid-cols-2 gap-4">
           {[
-            ["Log every shift", "Clock in and out with the bot in Discord. Payroll comes off that log."],
-            ["Price from the card", "Do not undercut the rate card without an executive on the message."],
-            ["Books before boasts", "No figure goes public until it is on this site."],
-            ["One buyer, one contact", "Whoever opened the account keeps it. Hand over in writing."],
-          ].map(([t, d]) => (
-            <Panel key={t} style={{ padding: 18 }}>
+            {
+              t: "Log every shift",
+              d: "Clock in and out here when you finish. Payroll comes off that log.",
+              action: "Clock in / out",
+            },
+            { t: "Price from the card", d: "Do not undercut the rate card without an executive on the message." },
+            { t: "Books before boasts", d: "No figure goes public until it is on this site." },
+            { t: "One buyer, one contact", d: "Whoever opened the account keeps it. Hand over in writing." },
+          ].map(({ t, d, action }) => (
+            <Panel key={t} style={{ padding: 18, display: "flex", flexDirection: "column" }}>
               <h3 style={{ fontFamily: F.display, fontSize: 21, color: C.ink }}>{t}</h3>
-              <p className="mt-2" style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}>
+              <p
+                className="mt-2 flex-1"
+                style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
+              >
                 {d}
               </p>
+              {action && (
+                <div className="mt-4 flex items-center gap-3">
+                  <Btn
+                    variant="solid"
+                    onClick={() => {
+                      setFiled(false);
+                      setShowShift(true);
+                    }}
+                  >
+                    {action}
+                  </Btn>
+                  {filed && (
+                    <span style={{ fontFamily: F.mono, fontSize: 11, color: C.ledger }}>
+                      Shift filed.
+                    </span>
+                  )}
+                </div>
+              )}
             </Panel>
           ))}
         </div>
       </section>
+
+      <section>
+        <SectionHead
+          index="III"
+          title="Shift log"
+          note="The last shifts filed. Executives can correct entries in the control room."
+        />
+        {shifts.length === 0 ? (
+          <Panel tone="deep" style={{ padding: 20 }}>
+            <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft }}>
+              Nothing logged yet. Clock in and out above and it lands here.
+            </p>
+          </Panel>
+        ) : (
+          <div className="space-y-3">
+            {shifts.slice(0, 40).map((sh, i) => (
+              <Panel key={i} style={{ padding: 18 }}>
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>
+                    {sh.ts}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: F.mono,
+                      fontSize: 12.5,
+                      color: C.ink,
+                    }}
+                  >
+                    {sh.timeIn} → {sh.timeOut}
+                  </span>
+                  {sh.account && sh.account !== String(sh.username || "").toLowerCase() && (
+                    <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}>
+                      filed by {sh.account}
+                    </span>
+                  )}
+                </div>
+                <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink }}>
+                  {sh.username} — {sh.occupation}
+                </h3>
+                {sh.output && (
+                  <p
+                    className="mt-1"
+                    style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
+                  >
+                    {sh.output}
+                  </p>
+                )}
+              </Panel>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {showShift && (
+        <ShiftModal
+          onClose={() => setShowShift(false)}
+          onSubmit={async (form) => {
+            await onSubmitShift(form);
+            setFiled(true);
+          }}
+          session={session}
+          data={data}
+        />
+      )}
     </div>
   );
 }
@@ -1847,11 +2061,11 @@ function ControlRoom({ data, save, level, session }) {
     setPricePoint({ label: "", price: "" });
   };
 
-  const sendToDiscord = async (title, body) => {
+  const sendToDiscord = async (title, body, event) => {
     try {
       const res = await api("/api/discord", {
         method: "POST",
-        body: JSON.stringify({ title, body }),
+        body: JSON.stringify({ title, body, event }),
       });
       return res.message;
     } catch (e) {
@@ -1955,20 +2169,37 @@ function ControlRoom({ data, save, level, session }) {
         <SectionHead
           index="III"
           title="Discord"
-          note="Paste a webhook from your server (Channel settings, Integrations, Webhooks). Anyone with executive access can see it, so treat it as a shared company secret and reset it if it leaks."
+          note="Add one webhook per channel (Channel settings, Integrations, Webhooks). Each one takes only the posts you point at it, so the shift log does not have to land in the announcements channel. Anyone with executive access can see these URLs, so treat them as shared company secrets and reset any that leak."
         />
         <Panel style={{ padding: 20 }}>
-          <Field label="Webhook URL" value={data.discord.webhook} onChange={(v) => set("discord.webhook", v)} placeholder="https://discord.com/api/webhooks/..." />
+          <ListEditor
+            title="Webhooks"
+            items={data.discord.hooks || []}
+            blank={{ name: "", url: "", channel: "", events: "All posts" }}
+            onChange={(v) => set("discord.hooks", v)}
+            fields={[
+              { k: "name", label: "Label" },
+              { k: "events", label: "What it receives", options: HOOK_EVENTS },
+              { k: "url", label: "Webhook URL", full: true },
+              { k: "channel", label: "Channel it posts to" },
+            ]}
+          />
           <div className="grid md:grid-cols-2 gap-x-5">
-            <Field label="Channel it posts to" value={data.discord.channel} onChange={(v) => set("discord.channel", v)} />
             <Field label="Server invite" value={data.company.discordInvite} onChange={(v) => set("company.discordInvite", v)} placeholder="https://discord.gg/..." />
+            <Field label="Channel shown to visitors" value={data.discord.channel} onChange={(v) => set("discord.channel", v)} />
           </div>
           <Btn
             onClick={async () =>
-              setDiscordState(await sendToDiscord("Connection test", "The company site can reach this channel."))
+              setDiscordState(
+                await sendToDiscord(
+                  "Connection test",
+                  "The company site can reach this channel.",
+                  "All posts"
+                )
+              )
             }
           >
-            Send a test message
+            Test every webhook
           </Btn>
           {discordState && (
             <p className="mt-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.inkSoft }}>
@@ -2080,6 +2311,19 @@ function ControlRoom({ data, save, level, session }) {
             { k: "from", label: "From" },
             { k: "status", label: "Status", options: ["New", "Quoted", "Agreed", "Delivered", "Declined"] },
             { k: "detail", label: "Detail", full: true, rows: 2 },
+          ]}
+        />
+        <ListEditor
+          title="Shift log"
+          items={data.shifts || []}
+          blank={{ ts: "", username: "", occupation: "", timeIn: "", timeOut: "", output: "" }}
+          onChange={(v) => set("shifts", v)}
+          fields={[
+            { k: "username", label: "In-game name" },
+            { k: "occupation", label: "Occupation" },
+            { k: "timeIn", label: "Time in" },
+            { k: "timeOut", label: "Time out" },
+            { k: "output", label: "Resources gathered / services rendered", full: true, rows: 2 },
           ]}
         />
       </section>
@@ -2615,6 +2859,14 @@ export default function App() {
     [load]
   );
 
+  const submitShift = useCallback(
+    async (shift) => {
+      await api("/api/shifts", { method: "POST", body: JSON.stringify(shift) });
+      await load();
+    },
+    [load]
+  );
+
   const level = LEVEL[role] ?? 0;
 
   const tabs = useMemo(
@@ -2792,7 +3044,14 @@ export default function App() {
         {tab === "Client desk" && (
           <ClientDesk data={data} level={level} onSubmitRequest={submitRequest} />
         )}
-        {tab === "Staff room" && <StaffRoom data={data} level={level} />}
+        {tab === "Staff room" && (
+          <StaffRoom
+            data={data}
+            level={level}
+            session={session}
+            onSubmitShift={submitShift}
+          />
+        )}
         {tab === "Control room" && <ControlRoom data={data} level={level} save={save} session={session} />}
         {tab === "Account" && session.username && (
           <AccountPage

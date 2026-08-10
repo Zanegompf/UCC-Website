@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { ensureData } from "@/lib/seed";
 import { getSession } from "@/lib/auth";
 import { levelOf, LEVEL, effectiveRole } from "@/lib/roles";
-import { postToDiscord } from "@/lib/discord";
+import { postToDiscord, HOOK_EVENTS } from "@/lib/discord";
 import {
   rateLimit,
   tooMany,
@@ -44,7 +44,12 @@ export async function POST(req) {
   const title = String(body.title || "").slice(0, 256);
   const text = String(body.body || "").slice(0, 2000);
 
-  const result = await postToDiscord(data, { title, body: text });
+  // Anything the control room sends by hand counts as an announcement unless
+  // it says otherwise. An unrecognised value would silently match no hook, so
+  // fall back rather than trust the body.
+  const event = HOOK_EVENTS.includes(body.event) ? body.event : "Announcements";
+
+  const result = await postToDiscord(data, { title, body: text, event });
 
   return NextResponse.json(
     { message: result },

@@ -45,6 +45,7 @@ app/
     account/        GET own profile, POST change own password
     users/          GET list, POST create/replace, PATCH role only, DELETE (all exec)
     requests/       POST client desk submission
+    shifts/         POST staff shift log entry (staff+)
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
@@ -54,7 +55,7 @@ lib/
   auth.js           hash, verify, session cookie
   roles.js          LEVEL, ASSIGNABLE_ROLES, filterData(), effectiveRole()
   guard.js          rate limits, client IP, CSRF check, body caps, safeEqual
-  discord.js        webhook POST helper
+  discord.js        webhook fan-out. Several hooks, each routed by `events`
 bot/
   index.js          slash commands, talks only to /api/bot
 ```
@@ -65,9 +66,12 @@ bot/
 process.** The UI mirrors the decision; it never makes it.
 
 - `filterData(data, level)` strips: `users` and `codes` always; the balance
-  sheet, internal staff notes and client requests below staff; the rate card
-  below client; the Discord webhook below exec; plus projects and announcements
-  whose `visibility` / `audience` outranks the viewer.
+  sheet, internal staff notes, client requests and the shift log below staff;
+  the rate card below client; the Discord webhooks below exec; plus projects and
+  announcements whose `visibility` / `audience` outranks the viewer.
+- Below exec it **replaces `discord` wholesale** with `{channel}` rather than
+  deleting named keys. That is what keeps every URL in `hooks[]` off the wire as
+  the list grows — do not soften it into `delete d.discord.webhook`.
 - It always computes and attaches `financials.assets` and `financials.equity`,
   because public-facing stat cards need the totals without the breakdown.
 - `effectiveRole(data, session)` reads the role from the **stored account**, not
@@ -91,6 +95,7 @@ whether the request gets that far at all. It is not a substitute for the above.
 | register | 5 / hour per IP | all |
 | password change | 10 / 15 min | failures only |
 | client desk | 10 / hour per account | all |
+| shift log | 30 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
 | bot key | 10 / 10 min per IP | wrong keys only |
 
@@ -141,7 +146,8 @@ projects[]{name,status,visibility,progress,target,summary}
 services[]{name,price,detail}
 announcements[]{ts,author,audience,title,body}
 requests[]{ts,from,contact,type,detail,status,account}
-discord{webhook,channel,guild}
+shifts[]{ts,username,occupation,timeIn,timeOut,output,account}
+discord{webhook,channel,guild,hooks[]{name,url,channel,events}}
 users[]{username,role,passwordHash,added,self}     <- never sent to a client
 settings{signupOpen,signupRole}
 ```
@@ -150,7 +156,21 @@ settings{signupOpen,signupRole}
 saves can never clobber accounts. Account changes go through `/api/users` only.
 
 `ensureData()` seeds on first run and back-fills missing keys (`users`,
-`settings`) for records written by older versions. Add migrations there.
+`settings`, `shifts`, `discord.hooks`) for records written by older versions.
+Add migrations there.
+
+**Webhooks are a list.** `discord.hooks[]` holds one entry per channel, each
+with an `events` value from `HOOK_EVENTS` in `lib/discord.js` — a post only
+reaches the hooks that asked for its kind, so the shift log does not land in
+the announcements channel. `"All posts"` on a hook means it takes everything;
+passing `"All posts"` *as the event* is a broadcast to every hook, which is
+what the control room's test button uses.
+
+`discord.webhook` is the pre-list single URL. `ensureData()` promotes it into
+`hooks` as "Main"/"All posts", and `lib/discord.js` only falls back to it when
+**no** hook is configured — never merely because routing excluded them all,
+which would quietly send a category to the old URL precisely because someone
+had routed it away.
 
 ## Environment
 
@@ -236,6 +256,20 @@ without which every route importing `lib/guard.js` fails to build.
 Kill stale servers before retesting — a leftover `next start` holding :3000 will
 silently serve the **old** build and produce confusing 405s.
 
+**The session cookie is `secure` whenever `NODE_ENV === "production"`, which
+`npm start` sets.** A conforming client throws it away over plain
+`http://localhost`, so every "signed in" request quietly falls back to
+anonymous — and a refusal test then passes for the wrong reason. Chrome treats
+localhost as trustworthy and keeps it, so the browser is fine; command-line
+clients are not. curl needs the header replayed by hand, and PowerShell needs
+the cookie put in a `WebRequestSession` container (`-Headers @{Cookie=...}` is
+silently dropped, because .NET treats `Cookie` as a restricted header). Always
+assert the role you expect before trusting a refusal:
+
+```bash
+curl -s -b /tmp/e.jar localhost:3000/api/data | grep -o '"role":"[a-z]*"'   # expect exec
+```
+
 ## Design system
 
 Identity: **a modern holding company that happens to be old.** A deep navy shell
@@ -316,7 +350,9 @@ Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
 - Usernames are first-come; there is no verification that a username matches the
   Minecraft account.
 - No audit log of privileged actions.
-- `requests` and `announcements` are capped (200 / 60) by slicing on write.
+- `requests`, `announcements` and `shifts` are capped (200 / 60 / 200) by slicing
+  on write. The shift log is a rolling window, not a payroll archive — once it
+  passes 200 entries the oldest fall off and are gone.
 - Concurrent exec edits are last-write-wins across the whole blob.
 
 ## House rules for changes

@@ -65,6 +65,7 @@ export async function POST(req) {
   await writeData(data);
 
   await postToDiscord(data, {
+    event: "Client requests",
     title: "New client request — " + entry.type,
     body: entry.detail,
     footer: entry.from + (entry.contact ? " · " + entry.contact : ""),
