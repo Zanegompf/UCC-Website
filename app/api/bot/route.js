@@ -2,22 +2,61 @@ import { NextResponse } from "next/server";
 import { ensureData } from "@/lib/seed";
 import { writeData } from "@/lib/store";
 import { filterData, LEVEL } from "@/lib/roles";
+import {
+  clientIp,
+  peekLimit,
+  bumpLimit,
+  tooMany,
+  readJson,
+  refuseBody,
+  safeEqual,
+} from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
+const MAX_BODY = 8 * 1024;
+
+// Only wrong keys are counted. The whole Discord server's traffic arrives from
+// one Railway address, so counting successful calls would throttle the bot
+// itself on a busy evening; counting failures throttles only a guesser.
+const PER_IP = { limit: 10, windowSeconds: 600 };
+
 /**
- * The endpoint the Discord bot talks to. Authenticated with a shared key
- * in the x-bot-key header, not a user session.
+ * The endpoint the Discord bot talks to. Authenticated with a shared key in the
+ * x-bot-key header, not a user session.
+ *
+ * `safeEqual` rather than `===`: string comparison stops at the first byte that
+ * differs, which turns response time into a very slow oracle for the key.
  */
 function authorised(req) {
   const key = process.env.BOT_API_KEY;
-  return Boolean(key) && req.headers.get("x-bot-key") === key;
+  return Boolean(key) && safeEqual(req.headers.get("x-bot-key"), key);
+}
+
+/**
+ * Checks the key, counting only the wrong answers. Returns a 401 to send back,
+ * or null when the caller is genuine.
+ */
+async function reject(req) {
+  const key = `bot:${clientIp(req)}`;
+
+  const limited = await peekLimit({ key, ...PER_IP });
+  if (!limited.ok) return tooMany(limited.retryAfter);
+
+  if (!authorised(req)) {
+    await bumpLimit({ key, windowSeconds: PER_IP.windowSeconds });
+    return NextResponse.json(
+      { error: "Bad or missing bot key." },
+      { status: 401, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  return null;
 }
 
 export async function GET(req) {
-  if (!authorised(req)) {
-    return NextResponse.json({ error: "Bad or missing bot key." }, { status: 401 });
-  }
+  const denied = await reject(req);
+  if (denied) return denied;
 
   const url = new URL(req.url);
   const scope = url.searchParams.get("scope") || "public";
@@ -28,11 +67,12 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
-  if (!authorised(req)) {
-    return NextResponse.json({ error: "Bad or missing bot key." }, { status: 401 });
-  }
+  const denied = await reject(req);
+  if (denied) return denied;
 
-  const body = await req.json().catch(() => ({}));
+  const { tooBig, body } = await readJson(req, MAX_BODY);
+  if (tooBig) return refuseBody(MAX_BODY);
+
   const data = await ensureData();
 
   if (body.action === "price") {
