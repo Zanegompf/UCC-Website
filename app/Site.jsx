@@ -2751,9 +2751,14 @@ function AuthModal({ onClose, onSignedIn, signupOpen, startMode }) {
 
         <div className="mt-5">
           <Field
-            label="Username"
+            label="Minecraft username"
             value={form.username}
             onChange={(v) => { setForm({ ...form, username: v }); setErr(""); }}
+            hint={
+              registering
+                ? "Use your in-game name exactly. Nothing checks it, but payroll and client records are matched by hand against it."
+                : null
+            }
           />
           <PasswordInput
             label="Password"
