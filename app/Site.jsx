@@ -784,33 +784,75 @@ function operatingDivisions(divisions) {
   });
 }
 
-function OrgCard({ d, governing }) {
+/**
+ * The governing bodies are context, not the subject of the page, so they are
+ * drawn tighter than a division: the lead sits on the name's line instead of
+ * in its own bordered block underneath, and the type comes down a step.
+ */
+function OrgGoverningCard({ d }) {
   return (
-    <Panel
-      tone={governing ? "deep" : undefined}
-      raised={!governing}
-      style={{ padding: 20, height: "100%", display: "flex", flexDirection: "column" }}
-    >
-      {d.code ? (
-        <div
-          className="inline-block mb-4 self-start"
+    <Panel tone="deep" style={{ padding: "13px 16px" }}>
+      <div className="flex items-baseline justify-between gap-4">
+        <h3
           style={{
-            padding: "5px 9px",
-            border: `1px solid ${C.gold}`,
-            color: C.gold,
-            fontFamily: F.mono,
-            fontSize: 11,
-            letterSpacing: "0.1em",
-            whiteSpace: "nowrap",
+            fontFamily: F.display,
+            fontSize: 19,
+            lineHeight: 1.15,
+            color: C.ink,
+            letterSpacing: "-0.01em",
           }}
         >
-          {d.code}
-        </div>
-      ) : (
-        <div className="mb-4">
-          <Eyebrow>Governing</Eyebrow>
-        </div>
+          {d.name}
+        </h3>
+        {d.lead && (
+          <span
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11.5,
+              color: C.inkSoft,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {d.lead}
+          </span>
+        )}
+      </div>
+      {d.blurb && (
+        <p
+          className="mt-1"
+          style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.5 }}
+        >
+          {d.blurb}
+        </p>
       )}
+    </Panel>
+  );
+}
+
+function OrgCard({ d, governing }) {
+  if (governing) return <OrgGoverningCard d={d} />;
+
+  return (
+    <Panel
+      raised
+      style={{ padding: 20, height: "100%", display: "flex", flexDirection: "column" }}
+    >
+      {/* Only coded entries reach here — an uncoded one is a governing body
+          and was drawn above. */}
+      <div
+        className="inline-block mb-4 self-start"
+        style={{
+          padding: "5px 9px",
+          border: `1px solid ${C.gold}`,
+          color: C.gold,
+          fontFamily: F.mono,
+          fontSize: 11,
+          letterSpacing: "0.1em",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {d.code}
+      </div>
       <h3
         style={{
           fontFamily: F.display,
@@ -914,13 +956,13 @@ function OrgNode({ node, childrenOf, spine, seen }) {
 
   return (
     <div>
-      <div style={spine ? { maxWidth: 470, margin: "0 auto" } : undefined}>
+      <div style={spine ? { maxWidth: 420, margin: "0 auto" } : undefined}>
         <OrgCard d={node} governing={governing} />
       </div>
 
       {kids.length === 1 && (
         <>
-          <OrgStem />
+          <OrgStem height={governing ? 16 : 26} />
           <OrgNode
             node={kids[0]}
             childrenOf={childrenOf}
@@ -932,7 +974,7 @@ function OrgNode({ node, childrenOf, spine, seen }) {
 
       {kids.length > 1 && (
         <>
-          <OrgStem />
+          <OrgStem height={governing ? 16 : 26} />
           <OrgBranch n={kids.length} />
           <div className="ucc-org-row" style={{ "--ucc-cols": kids.length }}>
             {kids.map((k) => (
