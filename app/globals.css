@@ -42,6 +42,27 @@ input:focus, textarea:focus, select:focus { border-color: #111C2E !important; }
   border-color: #B9B2A5;
 }
 
+/* A row of org-chart siblings. It stacks on narrow screens — the connecting
+   rules are hidden there, because they assume one column per child.
+   The branch strip shares this template so each stub lands over its card;
+   if you change the gap, change ORG_GAP in Site.jsx to match. */
+.ucc-org-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+.ucc-org-branch { display: none; }
+
+@media (min-width: 768px) {
+  .ucc-org-row,
+  .ucc-org-branch {
+    grid-template-columns: repeat(var(--ucc-cols, 1), minmax(0, 1fr));
+    gap: 20px;
+  }
+  .ucc-org-row { align-items: start; }
+  .ucc-org-branch { display: grid; }
+}
+
 ::selection { background: #C0913A; color: #0C1724; }
 
 @media (prefers-reduced-motion: reduce) {

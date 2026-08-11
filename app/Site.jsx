@@ -544,7 +544,9 @@ function Hero({ data }) {
 
             <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-2">
               {[
-                [data.divisions.length, "divisions"],
+                // Not divisions.length: that list now carries the board and
+                // the desks under the trades as well.
+                [operatingDivisions(data.divisions).length, "divisions"],
                 [data.staff.length, "on the books"],
                 [data.company.hq, ""],
               ].map(([v, k], i) => (
@@ -761,6 +763,237 @@ function ListEditor({ title, items, fields, blank, onChange }) {
 }
 
 /* ----------------------------- sections ----------------------------- */
+
+/* ------------------------------- org chart ------------------------------ */
+
+// Must match the gap on .ucc-org-row and .ucc-org-branch in globals.css —
+// the connecting rules are positioned against it.
+const ORG_GAP = 20;
+
+/**
+ * An operating division is a coded entry sitting directly under an uncoded
+ * one. Governing bodies carry no code, so this counts the trades without
+ * counting the board above them or the desks below them.
+ */
+function operatingDivisions(divisions) {
+  const list = divisions || [];
+  return list.filter((d) => {
+    if (!d?.code) return false;
+    const parent = list.find((p) => p.name === d.parent);
+    return !parent || !parent.code;
+  });
+}
+
+function OrgCard({ d, governing }) {
+  return (
+    <Panel
+      tone={governing ? "deep" : undefined}
+      raised={!governing}
+      style={{ padding: 20, height: "100%", display: "flex", flexDirection: "column" }}
+    >
+      {d.code ? (
+        <div
+          className="inline-block mb-4 self-start"
+          style={{
+            padding: "5px 9px",
+            border: `1px solid ${C.gold}`,
+            color: C.gold,
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.1em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {d.code}
+        </div>
+      ) : (
+        <div className="mb-4">
+          <Eyebrow>Governing</Eyebrow>
+        </div>
+      )}
+      <h3
+        style={{
+          fontFamily: F.display,
+          fontSize: 24,
+          lineHeight: 1.1,
+          color: C.ink,
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {d.name}
+      </h3>
+      {d.blurb && (
+        <p
+          className="mt-3 flex-1"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
+        >
+          {d.blurb}
+        </p>
+      )}
+      {d.lead && (
+        <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.rule}` }}>
+          <Eyebrow>Lead</Eyebrow>
+          <div style={{ fontFamily: F.mono, fontSize: 13, color: C.ink, marginTop: 4 }}>
+            {d.lead}
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/** The vertical rule joining a card to whatever hangs beneath it. */
+function OrgStem({ height }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{ width: 1, height: height || 26, background: C.rule, margin: "0 auto" }}
+    />
+  );
+}
+
+/**
+ * The horizontal rule over a row of children, with a stub dropping to each.
+ *
+ * This is itself a grid on the same template as the row below, rather than a
+ * strip with stubs placed at `100/n` percent: the row has a gap between
+ * columns, so evenly-spaced percentages miss the card centres by several
+ * pixels. Letting the browser lay out the same columns puts each stub exactly
+ * over its card whatever the widths turn out to be. The horizontal segments
+ * overhang by half the gap at each end so they meet across it.
+ *
+ * Hidden on narrow screens, where the row stacks into one column instead.
+ */
+function OrgBranch({ n }) {
+  const overhang = -(ORG_GAP / 2);
+  return (
+    <div aria-hidden="true" className="ucc-org-branch" style={{ "--ucc-cols": n }}>
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} style={{ position: "relative", height: 26 }}>
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              height: 1,
+              background: C.rule,
+              left: i === 0 ? "50%" : overhang,
+              right: i === n - 1 ? "50%" : overhang,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: 0,
+              width: 1,
+              height: 26,
+              background: C.rule,
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One node and everything under it.
+ *
+ * `spine` marks the run of single-child nodes from the top, which are drawn as
+ * one narrow centred column so the board, the committee and the department
+ * line up rather than stretching across the page.
+ */
+function OrgNode({ node, childrenOf, spine, seen }) {
+  // An executive can type any name into `parent`, so a cycle is reachable from
+  // the control room. Stop rather than recurse forever.
+  if (seen.has(node.name)) return null;
+  const nextSeen = new Set(seen).add(node.name);
+
+  const kids = (childrenOf.get(node.name) || []).filter((k) => !nextSeen.has(k.name));
+  const governing = !node.code;
+
+  return (
+    <div>
+      <div style={spine ? { maxWidth: 470, margin: "0 auto" } : undefined}>
+        <OrgCard d={node} governing={governing} />
+      </div>
+
+      {kids.length === 1 && (
+        <>
+          <OrgStem />
+          <OrgNode
+            node={kids[0]}
+            childrenOf={childrenOf}
+            spine={spine}
+            seen={nextSeen}
+          />
+        </>
+      )}
+
+      {kids.length > 1 && (
+        <>
+          <OrgStem />
+          <OrgBranch n={kids.length} />
+          <div className="ucc-org-row" style={{ "--ucc-cols": kids.length }}>
+            {kids.map((k) => (
+              <OrgNode
+                key={k.name}
+                node={k}
+                childrenOf={childrenOf}
+                spine={false}
+                seen={nextSeen}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function OrgChart({ divisions }) {
+  const { roots, childrenOf } = useMemo(() => {
+    const list = (divisions || []).filter((d) => d?.name);
+    const names = new Set(list.map((d) => d.name));
+    const map = new Map();
+    for (const d of list) {
+      // A parent that no longer exists would otherwise take its children off
+      // the page entirely, so treat those entries as tops of their own tree.
+      const key = d.parent && names.has(d.parent) && d.parent !== d.name ? d.parent : null;
+      if (key === null) continue;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(d);
+    }
+    const tops = list.filter(
+      (d) => !d.parent || !names.has(d.parent) || d.parent === d.name
+    );
+    return { roots: tops, childrenOf: map };
+  }, [divisions]);
+
+  if (!roots.length) {
+    return (
+      <Panel tone="deep" style={{ padding: 20 }}>
+        <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft }}>
+          No divisions on the record yet.
+        </p>
+      </Panel>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {roots.map((r) => (
+        <OrgNode
+          key={r.name}
+          node={r}
+          childrenOf={childrenOf}
+          spine
+          seen={new Set()}
+        />
+      ))}
+    </div>
+  );
+}
 
 const BLANK_APPLICATION = {
   username: "",
@@ -980,70 +1213,10 @@ function Overview({ data, level, session, onSubmitApplication, onSignIn }) {
       <section>
         <SectionHead
           index="II"
-          title="The four trades"
-          note="Each division keeps its own books and reports into the executive."
+          title="How the company is put together"
+          note="The board sits above the executive, the executive above the trades, and every division keeps its own books."
         />
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {data.divisions.map((d) => (
-            <Panel
-              key={d.code}
-              raised
-              style={{ padding: 24, display: "flex", flexDirection: "column" }}
-            >
-              {/* Codes run to five or six characters, so this has to size to
-                  its text rather than sit in a fixed square. */}
-              <div
-                className="inline-block mb-5 self-start"
-                style={{
-                  padding: "5px 9px",
-                  border: `1px solid ${C.gold}`,
-                  color: C.gold,
-                  fontFamily: F.mono,
-                  fontSize: 11,
-                  letterSpacing: "0.1em",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {d.code}
-              </div>
-              <h3
-                style={{
-                  fontFamily: F.display,
-                  fontSize: 27,
-                  lineHeight: 1.1,
-                  color: C.ink,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                {d.name}
-              </h3>
-              <p
-                className="mt-3 flex-1"
-                style={{
-                  fontFamily: F.body,
-                  fontSize: 14,
-                  color: C.inkSoft,
-                  lineHeight: 1.6,
-                }}
-              >
-                {d.blurb}
-              </p>
-              <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.rule}` }}>
-                <Eyebrow>Lead</Eyebrow>
-                <div
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 13,
-                    color: C.ink,
-                    marginTop: 4,
-                  }}
-                >
-                  {d.lead}
-                </div>
-              </div>
-            </Panel>
-          ))}
-        </div>
+        <OrgChart divisions={data.divisions} />
       </section>
 
       <section>
@@ -2509,13 +2682,23 @@ function ControlRoom({ data, save, level, session }) {
       <section>
         <SectionHead index="V" title="Records" note="Everything below saves the moment you type it." />
         <ListEditor
-          title="Divisions"
+          title="Divisions and the tree they sit in"
           items={data.divisions}
-          blank={{ name: "", code: "", lead: "", blurb: "" }}
+          blank={{ name: "", code: "", parent: "", lead: "", blurb: "" }}
           onChange={(v) => set("divisions", v)}
           fields={[
             { k: "name", label: "Name" },
-            { k: "code", label: "Code" },
+            {
+              k: "parent",
+              label: "Sits under",
+              options: ["", ...(data.divisions || []).map((d) => d.name).filter(Boolean)],
+              hint: "Leave blank for the top of the chart.",
+            },
+            {
+              k: "code",
+              label: "Code",
+              hint: "Leave blank for a governing body. Only coded entries count as divisions.",
+            },
             { k: "lead", label: "Lead" },
             { k: "blurb", label: "What it does", full: true, rows: 2 },
           ]}

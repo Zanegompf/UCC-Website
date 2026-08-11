@@ -143,7 +143,7 @@ One object. Everything hangs off it.
 
 ```
 company{name,short,ticker,exchange,founded,hq,ceo,tagline,mission,discordInvite,serverIp}
-divisions[]{name,code,lead,blurb}
+divisions[]{name,code,parent,lead,blurb}          <- a tree; see below
 stock{price,prevClose,shares,listed,updated,history[]{label,price}}
 financials{periods[]{label,revenue,expenses}, balance{cash,inventory,property,investments,liabilities}, note}
 staff[]{name,role,dept,joined,note,internal}
@@ -172,6 +172,35 @@ reaches the hooks that asked for its kind, so the shift log does not land in
 the announcements channel. `"All posts"` on a hook means it takes everything;
 passing `"All posts"` *as the event* is a broadcast to every hook, which is
 what the control room's test button uses.
+
+## The company tree
+
+`divisions` is a tree, not a list. `parent` holds the **name** of the entry
+above; blank, missing or unresolvable means top of the chart. The front page
+renders it as an org chart under "How the company is put together".
+
+The rule that separates a governing body from a trading division is the
+**code**: governing bodies (board, committee, department) carry none and are
+drawn in the deeper panel tone; operating units carry one and get the gold
+badge. `operatingDivisions()` counts coded entries whose parent is uncoded,
+which is what the hero's "N divisions" reads — not `divisions.length`, which
+now includes the board above and any desk below.
+
+Chart layout: a run of single-child nodes is drawn as one narrow centred
+column, so the governance chain stacks vertically. A node with several children
+gets a branch. The branch strip is a grid on the **same template and gap** as
+the row beneath it, because evenly-spaced percentages miss the card centres
+once a gap exists — if you change the gap in `globals.css`, change `ORG_GAP` in
+`Site.jsx` to match. Below 768px the row stacks and the strip is hidden, since
+its geometry assumes one column per child.
+
+`parent` is free text from the control room, so a cycle is reachable. `OrgNode`
+carries a `seen` set and stops rather than recursing forever; do not remove it.
+
+`ensureData()` migrates a flat pre-tree record by hanging the existing entries
+off a seeded governing chain and adding Lending under Capital, preserving names,
+leads and blurbs. Like the other back-fills it is not written until something
+saves, so it recomputes on each read until an executive saves the record.
 
 ## Hiring
 
