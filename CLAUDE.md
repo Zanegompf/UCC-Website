@@ -249,6 +249,15 @@ off a seeded governing chain and adding Lending under Capital, preserving names,
 leads and blurbs. Like the other back-fills it is not written until something
 saves, so it recomputes on each read until an executive saves the record.
 
+**The two charts divide the work: the overview shows the shape, the People tab
+shows who is in it.** The overview names nobody — no leads, no members — so the
+two cannot end up disagreeing about who runs what.
+
+`divisions[].lead` is therefore no longer rendered anywhere, and its input is
+gone from the control room. Stored values were left in place rather than
+stripped, so restoring it is one line in the divisions `ListEditor` and nothing
+else.
+
 **The People tab is the same chart with people in it.** `OrgChart` takes a
 `people` flag; the blocks then hold bullet lists instead of the compact
 governing card, and the spine is wider to fit them.

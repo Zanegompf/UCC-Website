@@ -918,37 +918,22 @@ function operatingDivisions(divisions) {
 
 /**
  * The governing bodies are context, not the subject of the page, so they are
- * drawn tighter than a division: the lead sits on the name's line instead of
- * in its own bordered block underneath, and the type comes down a step.
+ * drawn tighter than a division and the type comes down a step.
  */
 function OrgGoverningCard({ d }) {
   return (
     <Panel tone="deep" style={{ padding: "13px 16px" }}>
-      <div className="flex items-baseline justify-between gap-4">
-        <h3
-          style={{
-            fontFamily: F.display,
-            fontSize: 19,
-            lineHeight: 1.15,
-            color: C.ink,
-            letterSpacing: "-0.01em",
-          }}
-        >
-          {d.name}
-        </h3>
-        {d.lead && (
-          <span
-            style={{
-              fontFamily: F.mono,
-              fontSize: 11.5,
-              color: C.inkSoft,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {d.lead}
-          </span>
-        )}
-      </div>
+      <h3
+        style={{
+          fontFamily: F.display,
+          fontSize: 19,
+          lineHeight: 1.15,
+          color: C.ink,
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {d.name}
+      </h3>
       {d.blurb && (
         <p
           className="mt-1"
@@ -1247,14 +1232,9 @@ function OrgCard({ d, governing }) {
           {d.blurb}
         </p>
       )}
-      {d.lead && (
-        <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.rule}` }}>
-          <Eyebrow>Lead</Eyebrow>
-          <div style={{ fontFamily: F.mono, fontSize: 13, color: C.ink, marginTop: 4 }}>
-            {d.lead}
-          </div>
-        </div>
-      )}
+      {/* No names here on purpose. The overview chart is the shape of the
+          company; who sits in it is the People tab's job, and repeating a
+          single "lead" alongside that only invites the two to disagree. */}
     </Panel>
   );
 }
@@ -3642,7 +3622,10 @@ function ControlRoom({ data, save, level, session }) {
               label: "Code",
               hint: "Leave blank for a governing body. Only coded entries count as divisions.",
             },
-            { k: "lead", label: "Lead" },
+            // No "Lead" field: nothing renders it any more. Who is in a block
+            // comes from the staff list and shows on the People tab. The stored
+            // values are left alone rather than stripped, so putting it back is
+            // adding this line again and nothing else.
             { k: "blurb", label: "What it does", full: true, rows: 2 },
           ]}
         />
