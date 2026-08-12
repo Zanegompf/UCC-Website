@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 export const metadata = {
@@ -10,7 +11,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       {/* The shell is dark at both ends, so overscroll should be too. */}
-      <body style={{ background: "#060D16" }}>{children}</body>
+      <body style={{ background: "#060D16" }}>
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
