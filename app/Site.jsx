@@ -3649,7 +3649,10 @@ function ControlRoom({ data, save, level, session }) {
     next.stock.prevClose = next.stock.price;
     next.stock.price = p;
     next.stock.updated = pricePoint.label;
-    next.stock.history = [...next.stock.history, { label: pricePoint.label, price: p }].slice(-60);
+    // Matches the 120 the save route and the bot both keep. A tighter trim here
+    // meant a price posted from the control room quietly threw away history the
+    // same price posted from Discord would have kept.
+    next.stock.history = [...next.stock.history, { label: pricePoint.label, price: p }].slice(-120);
     save(next);
     setPricePoint({ label: "", price: "" });
   };
@@ -3678,7 +3681,9 @@ function ControlRoom({ data, save, level, session }) {
         body: post.body,
       },
       ...next.announcements,
-    ].slice(0, 40);
+      // 60 is the cap in CAPS in app/api/data/route.js, and what the bot keeps.
+      // Trimming to less here dropped notices a save would have allowed.
+    ].slice(0, 60);
     save(next);
     let msg = "Notice published.";
     if (post.toDiscord && post.audience === "public") {
