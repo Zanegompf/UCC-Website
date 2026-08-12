@@ -45,7 +45,8 @@ app/
     account/        GET own profile, POST change own password
     users/          GET list, POST create/replace, PATCH role only, DELETE (all exec)
     requests/       POST client desk submission
-    shifts/         POST staff shift log entry (staff+)
+    shifts/         POST clock in / clock out (staff+), body.action "in" | "out"
+    transactions/   POST a deal done off the chest shops (staff+)
     applications/   POST job application (any signed-in account, incl. member)
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
@@ -100,6 +101,7 @@ whether the request gets that far at all. It is not a substitute for the above.
 | password change | 10 / 15 min | failures only |
 | client desk | 10 / hour per account | all |
 | shift log | 30 / hour per account | all |
+| transactions | 30 / hour per account | all |
 | applications | 5 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
 | bot key | 10 / 10 min per IP | wrong keys only |
@@ -151,7 +153,8 @@ projects[]{name,status,visibility,progress,target,summary}
 services[]{name,price,detail}
 announcements[]{ts,author,audience,title,body}
 requests[]{ts,from,contact,type,detail,status,account}
-shifts[]{ts,username,occupation,timeIn,timeOut,output,account}
+shifts[]{ts,username,occupation,timeIn,timeOut,output,account}  <- empty timeOut = open
+transactions[]{ts,username,type,counterparty,amount,materials,detail,account}
 applications[]{ts,username,discord,role,wage,experience,references,notes,status,account}
 jobs[]{name,category}                              <- public; the dropdown reads it
 discord{webhook,channel,guild,hooks[]{name,url,channel,events}}
@@ -201,6 +204,34 @@ carries a `seen` set and stops rather than recursing forever; do not remove it.
 off a seeded governing chain and adding Lending under Capital, preserving names,
 leads and blurbs. Like the other back-fills it is not written until something
 saves, so it recomputes on each read until an executive saves the record.
+
+## The shift log
+
+**A shift is one row, not two.** `POST /api/shifts` takes `action: "in" | "out"`.
+Clocking in appends a row with an empty `timeOut`; clocking out finds that row
+and fills it in. An empty `timeOut` is what marks a shift as still open, and the
+staff room renders it as "18:00 → still on" with an Open badge.
+
+The open shift is matched by **`account`**, not by the in-game name — the name
+is free text and two people could type the same one. Clocking in twice is
+refused with a 409 rather than allowed, because a second open row would strand
+the first one and payroll would be reading a shift nobody can close. Clocking
+out with nothing open is a 400.
+
+Concurrent open shifts across different accounts are normal and supported.
+
+Note the interaction with the 200-row cap: it trims from the front, so a very
+long backlog could in principle trim away a still-open shift. That needs a busy
+week to reach and losing the oldest row beats an unbounded list.
+
+## Transactions
+
+`transactions` records deals settled off the chest shops — legal work, materials
+contracts. `amount` and `materials` are **text, not numbers**: a deal here is as
+often "half the takings" or "3 stacks of iron" as a figure, and one of the two
+may be blank, so the route requires a `type` plus at least one of them.
+
+Staff-visible, like the shift log — staff file them, so staff can read them.
 
 ## Hiring
 
@@ -432,10 +463,9 @@ Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
 - Usernames are first-come; there is no verification that a username matches the
   Minecraft account.
 - No audit log of privileged actions.
-- `requests`, `announcements`, `shifts` and `applications` are capped
-  (200 / 60 / 200 / 200) by slicing on write. The shift log and the hiring board
-  are rolling windows, not archives — past the cap the oldest fall off and are
-  gone.
+- `requests`, `announcements`, `shifts`, `transactions` and `applications` are
+  capped (200 / 60 / 200 / 200 / 200) by slicing on write. These are rolling
+  windows, not archives — past the cap the oldest fall off and are gone.
 - Concurrent exec edits are last-write-wins across the whole blob.
 
 ## House rules for changes

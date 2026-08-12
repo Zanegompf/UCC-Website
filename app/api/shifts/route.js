@@ -48,17 +48,65 @@ export async function POST(req) {
   const { tooBig, body } = await readJson(req, MAX_BODY);
   if (tooBig) return refuseBody(MAX_BODY);
 
+  const bad = (error, status) =>
+    NextResponse.json(
+      { error },
+      { status: status || 400, headers: { "Cache-Control": "no-store" } }
+    );
+
+  const data = stored;
+  const shifts = Array.isArray(data.shifts) ? data.shifts : [];
+
+  // A shift with no `timeOut` is one somebody is still on. It is matched by
+  // `account` rather than by the in-game name, because the name is free text
+  // and two people could type the same one.
+  const openIndex = shifts.findIndex(
+    (s) => s && s.account === session.username && !String(s.timeOut || "").trim()
+  );
+
+  /* ----------------------------- clocking out ---------------------------- */
+
+  if (body.action === "out") {
+    if (openIndex < 0) {
+      return bad("You are not clocked in. Clock in first, then out at the end.");
+    }
+
+    const timeOut = String(body.timeOut || "").slice(0, 40).trim();
+    if (!timeOut) return bad("Give the time you finished.");
+
+    const output = String(body.output || "").slice(0, 2000).trim();
+    const next = [...shifts];
+    next[openIndex] = { ...next[openIndex], timeOut, output };
+
+    data.shifts = next;
+    await writeData(data);
+
+    return NextResponse.json(
+      { ok: true },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  /* ------------------------------ clocking in ---------------------------- */
+
+  if (openIndex >= 0) {
+    // Otherwise a second clock-in would strand the first shift open forever,
+    // and payroll would be reading a row nobody can close.
+    const open = shifts[openIndex];
+    return bad(
+      `You are already clocked in — ${open.occupation || "a shift"} from ${
+        open.timeIn || "earlier"
+      }. Clock out of that first.`,
+      409
+    );
+  }
+
   const username = String(body.username || "").slice(0, 40).trim();
   const occupation = String(body.occupation || "").slice(0, 80).trim();
   const timeIn = String(body.timeIn || "").slice(0, 40).trim();
-  const timeOut = String(body.timeOut || "").slice(0, 40).trim();
-  const output = String(body.output || "").slice(0, 2000).trim();
 
-  if (!username || !occupation || !timeIn || !timeOut) {
-    return NextResponse.json(
-      { error: "Give a name, an occupation, and both times." },
-      { status: 400, headers: { "Cache-Control": "no-store" } }
-    );
+  if (!username || !occupation || !timeIn) {
+    return bad("Give a name, an occupation and the time you started.");
   }
 
   const entry = {
@@ -66,15 +114,18 @@ export async function POST(req) {
     username,
     occupation,
     timeIn,
-    timeOut,
-    output,
+    // Filled in on the way out. Empty is what marks the shift as still open.
+    timeOut: "",
+    output: "",
     // Who was signed in when this was filed, which is not necessarily the
     // in-game name typed above. Payroll disputes need both.
     account: session.username,
   };
 
-  const data = stored;
-  data.shifts = [...(data.shifts || []), entry].slice(-200);
+  // The cap trims from the front, so an open shift could in principle be
+  // trimmed away before it is closed. At 200 rows that needs a very busy
+  // week, and losing the oldest row beats letting the list grow unbounded.
+  data.shifts = [...shifts, entry].slice(-200);
   await writeData(data);
 
   // No Discord post. Posting a notice is the only thing on this site that is

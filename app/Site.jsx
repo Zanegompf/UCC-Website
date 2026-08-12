@@ -1924,26 +1924,18 @@ function ClientDesk({ data, level, onSubmitRequest }) {
 }
 
 /**
- * Clock in and out. One completed shift per submission — the times are typed
- * rather than stamped from the clock, because people log the shift after they
- * have finished working, not while they are stood at the keyboard.
+ * Opens the shift. Times are typed rather than stamped from the clock: people
+ * log the shift around the work, not while stood at the keyboard, and a
+ * forgotten clock-in still has to be enterable after the fact.
  */
-function ShiftModal({ onClose, onSubmit, session, data }) {
+function ClockInModal({ onClose, onSubmit, session, data }) {
   const [form, setForm] = useState({
     username: session?.username || "",
     occupation: "",
     timeIn: "",
-    timeOut: "",
-    output: "",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  const ready =
-    form.username.trim() &&
-    form.occupation.trim() &&
-    form.timeIn.trim() &&
-    form.timeOut.trim();
 
   // Roles people actually hold, offered as a starting point rather than a
   // fixed list — the divisions change and the staff table is the record.
@@ -1952,6 +1944,185 @@ function ShiftModal({ onClose, onSubmit, session, data }) {
     const fromDivisions = (data?.divisions || []).map((d) => d.name).filter(Boolean);
     return Array.from(new Set([...fromStaff, ...fromDivisions, "Other"]));
   }, [data]);
+
+  const ready = form.username.trim() && form.occupation.trim() && form.timeIn.trim();
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "in", ...form });
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} wide>
+      <Eyebrow color={C.gold}>Shift log</Eyebrow>
+      <h2 className="mt-2 mb-1" style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}>
+        Clock in
+      </h2>
+      <p
+        className="mb-5"
+        style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
+      >
+        This opens a shift. Clock out at the end and it becomes one entry in the
+        log, not two.
+      </p>
+
+      <div className="grid md:grid-cols-2 gap-x-5">
+        <Field
+          label="In-game name"
+          value={form.username}
+          onChange={(v) => setForm({ ...form, username: v })}
+          placeholder="Steve"
+        />
+        <Field
+          label="Occupation"
+          value={form.occupation}
+          onChange={(v) => setForm({ ...form, occupation: v })}
+          options={["", ...occupations]}
+        />
+      </div>
+      <Field
+        label="Time in"
+        value={form.timeIn}
+        onChange={(v) => setForm({ ...form, timeIn: v })}
+        placeholder="18:00"
+      />
+
+      {error && (
+        <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+          {error}
+        </p>
+      )}
+
+      <div className="flex items-center gap-3">
+        <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
+          {busy ? "Clocking in…" : "Clock in"}
+        </Btn>
+        <Btn onClick={onClose}>Cancel</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Closes the open shift. What was gathered or done is asked for here rather
+ * than on the way in, because nobody knows it yet when they start.
+ */
+function ClockOutModal({ onClose, onSubmit, open }) {
+  const [form, setForm] = useState({ timeOut: "", output: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const ready = form.timeOut.trim();
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "out", ...form });
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} wide>
+      <Eyebrow color={C.gold}>Shift log</Eyebrow>
+      <h2 className="mt-2 mb-1" style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}>
+        Clock out
+      </h2>
+
+      {open ? (
+        <p
+          className="mb-5"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
+        >
+          Closing the shift you opened as{" "}
+          <span style={{ fontFamily: F.mono, fontSize: 13, color: C.ink }}>
+            {open.occupation}
+          </span>{" "}
+          at{" "}
+          <span style={{ fontFamily: F.mono, fontSize: 13, color: C.ink }}>
+            {open.timeIn}
+          </span>
+          {open.ts ? ` on ${open.ts}` : ""}.
+        </p>
+      ) : (
+        <p
+          className="mb-5"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.seal, lineHeight: 1.55 }}
+        >
+          You are not clocked in, so there is nothing to close. Clock in first.
+        </p>
+      )}
+
+      <Field
+        label="Time out"
+        value={form.timeOut}
+        onChange={(v) => setForm({ ...form, timeOut: v })}
+        placeholder="21:30"
+      />
+      <Field
+        label="Resources gathered / services rendered"
+        rows={4}
+        value={form.output}
+        onChange={(v) => setForm({ ...form, output: v })}
+        placeholder="3 stacks of iron to the hub, restocked the Willow storefront."
+      />
+
+      {error && (
+        <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+          {error}
+        </p>
+      )}
+
+      <div className="flex items-center gap-3">
+        <Btn variant="solid" onClick={submit} disabled={!ready || busy || !open}>
+          {busy ? "Clocking out…" : "Clock out"}
+        </Btn>
+        <Btn onClick={onClose}>Cancel</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * A deal done off the chest shops — legal work, a materials contract, anything
+ * the shop logs will never show. Amount and material count are separate fields
+ * because plenty of jobs here are paid partly in each.
+ */
+function TransactionModal({ onClose, onSubmit, session, data }) {
+  const [form, setForm] = useState({
+    username: session?.username || "",
+    type: "",
+    counterparty: "",
+    amount: "",
+    materials: "",
+    detail: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  // The rate card is the obvious starting point, but plenty of work is not on
+  // it, so the list stays open-ended.
+  const types = useMemo(() => {
+    const fromServices = (data?.services || []).map((s) => s.name).filter(Boolean);
+    return Array.from(
+      new Set([...fromServices, "Legal work", "Materials contract", "Other"])
+    );
+  }, [data]);
+
+  const ready = form.type.trim() && (form.amount.trim() || form.materials.trim());
 
   const submit = async () => {
     if (!ready || busy) return;
@@ -1968,52 +2139,56 @@ function ShiftModal({ onClose, onSubmit, session, data }) {
 
   return (
     <Modal onClose={onClose} wide>
-      <Eyebrow color={C.gold}>Shift log</Eyebrow>
-      <h2
-        className="mt-2 mb-1"
-        style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}
-      >
-        Clock in and out
+      <Eyebrow color={C.gold}>Transaction log</Eyebrow>
+      <h2 className="mt-2 mb-1" style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}>
+        Log a transaction
       </h2>
       <p
         className="mb-5"
         style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
       >
-        Payroll is worked out from this log. If it is not logged, it is not paid.
+        Anything settled outside the chest shops. Fill in the money, the
+        materials, or both — whichever the deal actually was.
       </p>
 
       <div className="grid md:grid-cols-2 gap-x-5">
         <Field
-          label="In-game name"
-          value={form.username}
-          onChange={(v) => setForm({ ...form, username: v })}
-          placeholder="Steve"
+          label="What type of service rendered"
+          value={form.type}
+          onChange={(v) => setForm({ ...form, type: v })}
+          options={["", ...types]}
         />
         <Field
-          label="Occupation"
-          value={form.occupation}
-          onChange={(v) => setForm({ ...form, occupation: v })}
-          options={["", ...occupations]}
+          label="Who it was with"
+          value={form.counterparty}
+          onChange={(v) => setForm({ ...form, counterparty: v })}
+          placeholder="Steve, or Willow Holdings"
         />
         <Field
-          label="Time in"
-          value={form.timeIn}
-          onChange={(v) => setForm({ ...form, timeIn: v })}
-          placeholder="18:00"
+          label="Amount"
+          value={form.amount}
+          onChange={(v) => setForm({ ...form, amount: v })}
+          placeholder="$12,000"
         />
         <Field
-          label="Time out"
-          value={form.timeOut}
-          onChange={(v) => setForm({ ...form, timeOut: v })}
-          placeholder="21:30"
+          label="Material count"
+          value={form.materials}
+          onChange={(v) => setForm({ ...form, materials: v })}
+          placeholder="3 stacks of iron"
         />
       </div>
       <Field
-        label="Resources gathered / services rendered"
-        rows={4}
-        value={form.output}
-        onChange={(v) => setForm({ ...form, output: v })}
-        placeholder="3 stacks of iron to the hub, restocked the Willow storefront."
+        label="Logged by"
+        value={form.username}
+        onChange={(v) => setForm({ ...form, username: v })}
+        placeholder="Steve"
+      />
+      <Field
+        label="Anything else"
+        rows={3}
+        value={form.detail}
+        onChange={(v) => setForm({ ...form, detail: v })}
+        placeholder="Terms, dates, what is still owed."
       />
 
       {error && (
@@ -2024,7 +2199,7 @@ function ShiftModal({ onClose, onSubmit, session, data }) {
 
       <div className="flex items-center gap-3">
         <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
-          {busy ? "Filing…" : "File the shift"}
+          {busy ? "Logging…" : "Log the transaction"}
         </Btn>
         <Btn onClick={onClose}>Cancel</Btn>
       </div>
@@ -2032,9 +2207,11 @@ function ShiftModal({ onClose, onSubmit, session, data }) {
   );
 }
 
-function StaffRoom({ data, level, session, onSubmitShift }) {
-  const [showShift, setShowShift] = useState(false);
-  const [filed, setFiled] = useState(false);
+function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction }) {
+  const [clocking, setClocking] = useState(null); // "in" | "out" | null
+  const [filed, setFiled] = useState("");
+  const [showTransaction, setShowTransaction] = useState(false);
+  const [logged, setLogged] = useState("");
 
   if (level < LEVEL.staff) {
     return (
@@ -2045,12 +2222,19 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
     );
   }
 
+  // The shift this account has open, if any. The server decides for real; this
+  // only shapes what the buttons offer to do.
+  const openShift = (data.shifts || []).find(
+    (s) => s && s.account === session?.username && !String(s.timeOut || "").trim()
+  );
+
   const shifts = [...(data.shifts || [])].reverse();
+  const transactions = [...(data.transactions || [])].reverse();
   const applications = [...(data.applications || [])].reverse();
 
   // The hiring board is executive-only, so the numerals cannot be written by
   // hand — a staff viewer would otherwise read I, III, IV.
-  const numerals = ["I", "II", "III", "IV", "V"];
+  const numerals = ["I", "II", "III", "IV", "V", "VI"];
   let counted = 0;
   const step = () => numerals[counted++];
 
@@ -2184,13 +2368,17 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
           {[
             {
               t: "Log every shift",
-              d: "Clock in and out here when you finish. Payroll comes off that log.",
-              action: "Clock in / out",
+              d: "Clock in when you start and out when you finish. The two make one entry, and payroll comes off it.",
+              clock: true,
             },
             { t: "Price from the card", d: "Do not undercut the rate card without an executive on the message." },
             { t: "Books before boasts", d: "No figure goes public until it is on this site." },
-            { t: "One buyer, one contact", d: "Whoever opened the account keeps it. Hand over in writing." },
-          ].map(({ t, d, action }) => (
+            {
+              t: "Transaction Log",
+              d: "Log a transaction made outside of chestshops such as legal work, material contract etc.",
+              transaction: true,
+            },
+          ].map(({ t, d, clock, transaction }) => (
             <Panel key={t} style={{ padding: 18, display: "flex", flexDirection: "column" }}>
               <h3 style={{ fontFamily: F.display, fontSize: 21, color: C.ink }}>{t}</h3>
               <p
@@ -2199,21 +2387,63 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
               >
                 {d}
               </p>
-              {action && (
-                <div className="mt-4 flex items-center gap-3">
+              {clock && (
+                <div className="mt-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Btn
+                      variant={openShift ? "ghost" : "solid"}
+                      onClick={() => {
+                        setFiled("");
+                        setClocking("in");
+                      }}
+                    >
+                      Clock in
+                    </Btn>
+                    <Btn
+                      variant={openShift ? "solid" : "ghost"}
+                      onClick={() => {
+                        setFiled("");
+                        setClocking("out");
+                      }}
+                    >
+                      Clock out
+                    </Btn>
+                  </div>
+                  {(openShift || filed) && (
+                    <div
+                      className="mt-3"
+                      style={{
+                        fontFamily: F.mono,
+                        fontSize: 11,
+                        color: filed ? C.ledger : C.inkSoft,
+                      }}
+                    >
+                      {filed ||
+                        `On shift since ${openShift.timeIn}${
+                          openShift.occupation ? " · " + openShift.occupation : ""
+                        }`}
+                    </div>
+                  )}
+                </div>
+              )}
+              {transaction && (
+                <div className="mt-4">
                   <Btn
                     variant="solid"
                     onClick={() => {
-                      setFiled(false);
-                      setShowShift(true);
+                      setLogged("");
+                      setShowTransaction(true);
                     }}
                   >
-                    {action}
+                    Log Transaction
                   </Btn>
-                  {filed && (
-                    <span style={{ fontFamily: F.mono, fontSize: 11, color: C.ledger }}>
-                      Shift filed.
-                    </span>
+                  {logged && (
+                    <div
+                      className="mt-3"
+                      style={{ fontFamily: F.mono, fontSize: 11, color: C.ledger }}
+                    >
+                      {logged}
+                    </div>
                   )}
                 </div>
               )}
@@ -2249,8 +2479,25 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
                       color: C.ink,
                     }}
                   >
-                    {sh.timeIn} → {sh.timeOut}
+                    {String(sh.timeOut || "").trim()
+                      ? `${sh.timeIn} → ${sh.timeOut}`
+                      : `${sh.timeIn} → still on`}
                   </span>
+                  {!String(sh.timeOut || "").trim() && (
+                    <span
+                      style={{
+                        fontFamily: F.mono,
+                        fontSize: 9.5,
+                        letterSpacing: "0.16em",
+                        textTransform: "uppercase",
+                        padding: "3px 7px",
+                        background: C.gold,
+                        color: C.night,
+                      }}
+                    >
+                      Open
+                    </span>
+                  )}
                   {sh.account && sh.account !== String(sh.username || "").toLowerCase() && (
                     <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}>
                       filed by {sh.account}
@@ -2274,15 +2521,92 @@ function StaffRoom({ data, level, session, onSubmitShift }) {
         )}
       </section>
 
-      {showShift && (
-        <ShiftModal
-          onClose={() => setShowShift(false)}
+      <section>
+        <SectionHead
+          index={step()}
+          title="Transaction log"
+          note="Deals settled off the chest shops. Executives can correct entries in the control room."
+        />
+        {transactions.length === 0 ? (
+          <Panel tone="deep" style={{ padding: 20 }}>
+            <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft }}>
+              Nothing logged yet. Use the transaction log above and it lands here.
+            </p>
+          </Panel>
+        ) : (
+          <div className="space-y-3">
+            {transactions.slice(0, 40).map((t, i) => (
+              <Panel key={i} style={{ padding: 18 }}>
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>
+                    {t.ts}
+                  </span>
+                  {t.amount && (
+                    <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.ledger }}>
+                      {t.amount}
+                    </span>
+                  )}
+                  {t.materials && (
+                    <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.ink }}>
+                      {t.materials}
+                    </span>
+                  )}
+                  {t.username && (
+                    <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}>
+                      logged by {t.username}
+                    </span>
+                  )}
+                </div>
+                <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink }}>
+                  {t.type}
+                  {t.counterparty ? ` — ${t.counterparty}` : ""}
+                </h3>
+                {t.detail && (
+                  <p
+                    className="mt-1"
+                    style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
+                  >
+                    {t.detail}
+                  </p>
+                )}
+              </Panel>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {showTransaction && (
+        <TransactionModal
+          onClose={() => setShowTransaction(false)}
           onSubmit={async (form) => {
-            await onSubmitShift(form);
-            setFiled(true);
+            await onSubmitTransaction(form);
+            setLogged("Transaction logged.");
           }}
           session={session}
           data={data}
+        />
+      )}
+
+      {clocking === "in" && (
+        <ClockInModal
+          onClose={() => setClocking(null)}
+          onSubmit={async (form) => {
+            await onSubmitShift(form);
+            setFiled("Clocked in. Clock out when you finish.");
+          }}
+          session={session}
+          data={data}
+        />
+      )}
+
+      {clocking === "out" && (
+        <ClockOutModal
+          onClose={() => setClocking(null)}
+          onSubmit={async (form) => {
+            await onSubmitShift(form);
+            setFiled("Shift closed and logged.");
+          }}
+          open={openShift}
         />
       )}
     </div>
@@ -2814,6 +3138,19 @@ function ControlRoom({ data, save, level, session }) {
           fields={[
             { k: "from", label: "From" },
             { k: "status", label: "Status", options: ["New", "Quoted", "Agreed", "Delivered", "Declined"] },
+            { k: "detail", label: "Detail", full: true, rows: 2 },
+          ]}
+        />
+        <ListEditor
+          title="Transaction log"
+          items={data.transactions || []}
+          blank={{ ts: "", username: "", type: "", counterparty: "", amount: "", materials: "", detail: "" }}
+          onChange={(v) => set("transactions", v)}
+          fields={[
+            { k: "type", label: "Service rendered" },
+            { k: "counterparty", label: "With" },
+            { k: "amount", label: "Amount" },
+            { k: "materials", label: "Material count" },
             { k: "detail", label: "Detail", full: true, rows: 2 },
           ]}
         />
@@ -3399,6 +3736,17 @@ export default function App() {
     [load]
   );
 
+  const submitTransaction = useCallback(
+    async (entry) => {
+      await api("/api/transactions", {
+        method: "POST",
+        body: JSON.stringify(entry),
+      });
+      await load();
+    },
+    [load]
+  );
+
   const submitApplication = useCallback(
     async (application) => {
       await api("/api/applications", {
@@ -3601,6 +3949,7 @@ export default function App() {
             level={level}
             session={session}
             onSubmitShift={submitShift}
+            onSubmitTransaction={submitTransaction}
           />
         )}
         {tab === "Control room" && <ControlRoom data={data} level={level} save={save} session={session} />}
