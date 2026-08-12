@@ -24,6 +24,7 @@ Repo: `Zanegompf/UCC-Website`. Hosting: Vercel. Bot host: Railway.
 | Store | Upstash Redis over REST, **one JSON blob** at key `ucc:company:v1` | No schema, no migrations, no ORM |
 | Auth | bcryptjs + `jose` JWT in an http-only cookie | |
 | Bot | discord.js 14, separate process | |
+| Analytics | `@vercel/analytics`, cookieless, first-party | No CSP change needed; see gotchas |
 
 **Do not upgrade Next to 15+** without editing `lib/auth.js` first: Next 15 made
 `cookies()` async and every call here is synchronous.
@@ -531,6 +532,14 @@ Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
   the site but every save fails silently.
 - Vercel env vars only apply to a **new** deployment. Always redeploy after
   adding them.
+- **Vercel Web Analytics** (`<Analytics/>` in `app/layout.jsx`) reports nothing
+  until Web Analytics is switched on for the project in the Vercel dashboard —
+  the console says so in as many words. It needs no CSP change: in production it
+  serves its script and posts its counts from `/_vercel/insights/*` on this
+  domain, so `script-src 'self'` and `connect-src 'self'` already cover it. Its
+  **debug** build is the exception — that one loads from `va.vercel-scripts.com`
+  and the CSP will block it under `next dev`. That is only the local debug
+  path; do not widen the policy for it.
 - Artifacts ban `localStorage`; this is a real app, so `localStorage` is fine and
   is used for per-device display preferences (`ucc:prefs`).
 - `FULL_FIGURES` is a module-scoped mutable in `Site.jsx` that `compact()` reads,
