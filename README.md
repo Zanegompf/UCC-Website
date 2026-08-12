@@ -1,9 +1,10 @@
 # The United Commerce Corporation
 
 The company website and Discord bot for UCC on DemocracyCraft. The site shows
-the share price, the books, the staff and the projects. Clients and staff sign
-in to see more. The bot reads and writes the same record, so Discord and the
-website can never disagree.
+the share price, the books, the company chart, the staff and the projects.
+Clients and staff sign in to see more. Staff clock their shifts and log the
+deals done off the chest shops. The bot reads and writes the same record, so
+Discord and the website can never disagree.
 
 Nothing here is real money. It is a roleplay company on a Minecraft server.
 
@@ -101,8 +102,13 @@ The second is your `BOT_API_KEY` (it lets the bot talk to the site).
 
 **Important:** `ADMIN_USERNAME` and `ADMIN_PASSWORD` are only used once, to
 create the founding account on the very first page load. Changing them later
-does nothing. To change your password afterwards, use Control room → Accounts
-and save your own username again with a new password.
+does nothing. To change your password afterwards, open the tab with your
+username on it and use **Change your password** — it asks for the current one.
+
+**Visitor numbers** are collected by Vercel's own analytics, which reports
+nothing until you switch **Web Analytics** on for the project in the Vercel
+dashboard. It is cookieless and served from your own domain, so there is
+nothing to configure in the code.
 
 ---
 
@@ -123,22 +129,31 @@ and save your own username again with a new password.
 
 ---
 
-## Part 5 — Discord (5 minutes, no bot needed)
+## Part 5 — Discord webhooks (5 minutes, no bot needed)
 
 The site can post to Discord on its own, with no bot and no hosting:
 
 1. In Discord: **Channel Settings → Integrations → Webhooks → New Webhook**.
    Point it at your announcements channel and copy the URL.
-2. On your site: **Control room → Discord**, paste it, then **Send a test
-   message**.
+2. On your site: **Control room → Discord → Webhooks → Add**. Give it a label,
+   paste the URL, and save. Then press **Test every webhook**.
 
-Now the site posts to Discord when you publish a public notice, push a price
-update, or a client sends a request through the client desk.
+You can add **as many as you like, one per channel**. Each has a "What it
+receives" setting so a channel only gets what you aimed at it. Only notices are
+sent at the moment, so both settings behave the same — the pair is there so a
+hook can be aimed precisely later.
 
-The webhook URL is only ever stored server-side and is never sent to a
-visitor's browser. Still, treat it as a company secret — anyone holding it can
-post messages that look like they came from you. If it leaks, delete the
-webhook in Discord and make a new one.
+**Publishing a public notice is the only thing on this site that posts to
+Discord.** Client requests, shift logs, transactions and job applications all
+stay on their boards on the site. Each of those is filed several times a day and
+names a person, so none of them belongs in a channel. There is no "push the
+price to Discord" button either — post the price as a notice with the figure in
+it.
+
+Webhook URLs are only ever stored server-side and are never sent to a visitor's
+browser. Any executive can read them in the control room, so treat them as
+shared company secrets. If one leaks, delete the webhook in Discord and add a
+new one here.
 
 ---
 
@@ -190,8 +205,8 @@ Webhooks only push *out* to Discord. The bot is what lets people pull data
 | `/announce` | executive role |
 
 `/setprice` and `/announce` write straight to the website. The private commands
-are gated on Discord role IDs, so if you leave `STAFF_ROLE_ID` blank, nobody
-can use `/finances` — including you.
+are gated on **Discord role IDs**, not on site accounts, so if you leave
+`STAFF_ROLE_ID` blank, nobody can use `/finances` — including you.
 
 ---
 
@@ -207,15 +222,99 @@ open `localhost:3000`.
 
 ---
 
+## What is on the site
+
+Every tab has its own address, so a link or a bookmark comes back to the same
+place instead of dropping on the overview — `#share`, `#staff-room`,
+`#control-room` and so on. Back and forward walk through the tabs.
+
+| Tab | What it holds |
+|---|---|
+| **Overview** | Mission, the company chart, notices, and the job application form |
+| **Share** | Price, market capital, book value, the chart and the full price table |
+| **Financials** | Monthly revenue and costs, and the balance sheet for staff |
+| **People** | The same chart as the overview, with the people in it |
+| **Projects** | What is being built, with progress |
+| **Client desk** | The rate card, and the form clients use to ask for something |
+| **Staff room** | Requests, the hiring board, standing orders, shift and transaction logs |
+| **Control room** | Everything that edits the record |
+
+**The company chart.** Divisions are a tree, not a list: each one names the
+entry it sits under, and a blank one is the top. Governing bodies (the board,
+the committee, a department) carry **no code** and are drawn in the deeper
+tone; operating divisions carry a code and get the gold badge. The hero's "N
+divisions" counts the coded ones, so adding a board above or a desk below does
+not inflate it.
+
+The overview chart shows the **shape** and names nobody. The People tab is the
+same chart with the **people** in it, so the two can never disagree about who
+runs what. Who appears where comes from each staff member's department field,
+which takes a comma-separated list — the chief executive can chair the board
+and sit on the committee. A department that matches no block does not vanish;
+those people are listed under "Elsewhere on the books" so a typo never deletes
+somebody from the page.
+
+**Editing the chart in place.** A chief executive gets a hammer button on the
+People tab that unlocks the chart: click any name, title or description and
+change it, and it saves when you click away. Renaming a block carries its
+children and its people with it. Removing a block is only offered when nothing
+hangs off it and nobody is in it, and both removals ask twice — the record is
+the only copy.
+
+**The shift log.** Staff clock in when they start and out when they finish, and
+the two make **one entry**, not two. Times are typed rather than stamped from
+the clock, with an AM/PM picker beside the field, because people log the shift
+around the work and a forgotten clock-in still has to be enterable afterwards.
+Leave the picker blank if you write 24-hour time. A shift with no time out is
+still open and reads "still on" with an Open badge. You cannot clock in twice —
+close the open one first, or payroll ends up reading a shift nobody can finish.
+
+**The transaction log.** Deals settled off the chest shops: legal work,
+materials contracts. The amount and the material count are **text, not
+numbers**, because a deal here is as often "half the takings" or "3 stacks of
+iron" as it is a figure. Fill in either or both. Staff file them, so staff can
+read them.
+
+**Hiring.** Anyone with an account can apply from the front page, including a
+plain member — the whole point is that they do not work here yet. The account
+requirement is what stops it being an anonymous spam form. Applications are
+**executive-only** to read, one level above client requests, because an
+application states what somebody expects to be paid.
+
+They appear in two places, the hiring board in the staff room and the
+Applications page in the control room. Both show the **account the application
+was filed from**, with the access tabs beside it, so hiring somebody is done
+where you read them. The account and the in-game name on the form need not
+match — the account is what access hangs off. The job list in the dropdown is
+the server's own, and it is editable in the control room, because the server
+changes it and that should not need a deploy.
+
+**The control room.** Posting a notice, moving the price and Discord stay on
+the page. Everything past them is **one page each**, reached from the cards
+under "The rest of the record" — company details, divisions, staff, projects,
+rate card, financials, client requests, transactions, shift log, applications,
+job list and accounts. They used to be stacked in one column, so reaching the
+job list meant scrolling past the whole company. Everything on those pages
+saves the moment you type it.
+
+**Settings** (the cog in the masthead) holds display preferences saved on that
+device only — full figures instead of $1.68M, and which tab a plain visit opens
+on. Anyone can use those, signed in or not. Executives also get the company
+switches there: whether anyone may create an account, and what a new one starts
+as.
+
+---
+
 ## How permissions actually work
 
-There are five levels: **visitor, member, client, staff, executive**.
+There are six levels: **visitor, member, client, staff, executive, chief
+executive**.
 
 **Member** is what anyone gets when they create their own account from the
 sign-in box. They can sign in, but they see exactly what a visitor sees. That
 is deliberate: making an account should not hand a stranger your rate card or
-your client project list. Promote people to client or staff yourself, in
-Control room → Accounts.
+your client project list. Promote people yourself, either in Control room →
+Accounts or straight from their application.
 
 You can turn self-registration off entirely, or change what new accounts get,
 in **Settings → Company**. Leave the default on Member unless you have a
@@ -224,20 +323,40 @@ reason not to.
 The important part is *where* the filtering happens. When anyone loads the
 site, the server decides what they are allowed to see and strips everything
 else out before sending the page. A visitor's browser never receives the
-balance sheet, the internal staff notes, the client rate card or the hidden
-projects — not hidden with CSS, not present at all. Opening developer tools
-shows them nothing extra.
+balance sheet, the internal staff notes, the client rate card, the shift log or
+the hidden projects — not hidden with CSS, not present at all. Opening
+developer tools shows them nothing extra.
 
-| | Visitor | Member | Client | Staff | Executive |
-|---|---|---|---|---|---|
-| Mission, share price, public projects | yes | yes | yes | yes | yes |
-| Revenue, expenses, totals | yes | yes | yes | yes | yes |
-| Change own password, settings | — | yes | yes | yes | yes |
-| Rate card and the client desk | — | — | yes | yes | yes |
-| Client-only projects | — | — | yes | yes | yes |
-| Balance sheet, internal staff notes | — | — | — | yes | yes |
-| Incoming client requests | — | — | — | yes | yes |
-| Editing anything, accounts, webhook | — | — | — | — | yes |
+| | Visitor | Member | Client | Staff | Exec | CEO |
+|---|---|---|---|---|---|---|
+| Mission, share price, company chart, public projects | yes | yes | yes | yes | yes | yes |
+| Revenue, expenses, totals | yes | yes | yes | yes | yes | yes |
+| Change own password | — | yes | yes | yes | yes | yes |
+| Apply for a job | — | yes | yes | yes | yes | yes |
+| Rate card and the client desk | — | — | yes | yes | yes | yes |
+| Client-only projects, the full price table | — | — | yes | yes | yes | yes |
+| Balance sheet, internal staff notes | — | — | — | yes | yes | yes |
+| Incoming client requests | — | — | — | yes | yes | yes |
+| Shift log, transaction log, clocking in | — | — | — | yes | yes | yes |
+| Job applications and the hiring board | — | — | — | — | yes | yes |
+| Editing anything, accounts, webhooks | — | — | — | — | yes | yes |
+| Editing the company chart in place | — | — | — | — | — | yes |
+
+**Chief executive** sees exactly what an executive sees. It adds two things:
+unlocking the People chart to edit it in place, and control of its own seat.
+
+**Only a chief executive may seat or unseat another.** The one exception is
+getting started: where the company has no chief executive at all, an executive
+may appoint the first, otherwise a site set up before the role existed could
+never gain one. Seating somebody is done with the **CEO** tab on their row in
+Control room → Accounts; the add/change form below only offers member through
+exec.
+
+One thing to know if you are deploying this for a different company: the site
+seats the account named `OWNER_ACCOUNT` in `lib/seed.js` as chief executive
+automatically, on any page load where that account exists and the seat is empty.
+It ships set to this company's owner. Change it to your own username, or empty
+it, before you deploy.
 
 Passwords are hashed with bcrypt, so nobody can read them back out of the
 database — not even you. If someone forgets theirs, reissue it in Control room
@@ -249,20 +368,62 @@ current one first. Since passwords are hashed, a forgotten password cannot be
 looked up — reissue it in Control room → Accounts instead.
 
 **Changing someone's access level takes effect immediately**, on whatever
-device they are already signed in on. In Control room → Accounts, each account
-has a row of access tabs — Member, Client, Staff, Exec — and clicking one
-changes their level straight away. Deleting an account cuts them off just as
-fast. The site checks the stored account on every request rather than trusting
-what their login cookie says, so a demotion is real the moment you make it.
+device they are already signed in on. Each account has a row of access tabs —
+Member, Client, Staff, Exec, CEO — and clicking one changes their level
+straight away. Deleting an account cuts them off just as fast. The site checks
+the stored account on every request rather than trusting what their login
+cookie says, so a demotion is real the moment you make it.
 
 Two guardrails: you cannot change your own access level (ask another
 executive), and the last executive account cannot be demoted or deleted. Both
-exist so nobody locks themselves out of their own company.
+exist so nobody locks themselves out of their own company. The second counts
+the chief executive as an executive, so a company whose only privileged account
+is the CEO is not treated as locked out of itself.
 
 One limitation worth knowing: changing a *password* does not sign that person
 out on their other devices, because the session itself is stateless. If an
 account is genuinely compromised, delete it — that does cut off every device —
 rather than only changing the password.
+
+---
+
+## Limits worth knowing
+
+**The logs are rolling windows, not archives.** Client requests, shifts,
+transactions and applications keep the most recent **200** each. Past that the
+oldest fall off and are gone, so if a shift matters for payroll beyond that,
+write the total down somewhere else. Notices keep the most recent **60**, and
+the price chart the most recent **120** price points.
+
+The staff room shows the **last 40** shifts and transactions to keep the page
+readable. The rest are still on the record — Control room → Shift log and
+Transactions list all of them.
+
+**Forms are rate-limited per account or per connection.** Nothing here is
+tight enough to get in the way of ordinary use, but a script gets stopped:
+
+| What | Limit |
+|---|---|
+| Signing in | 10 failures / 10 min per connection, 25 / 15 min per account |
+| Creating an account | 5 / hour per connection |
+| Changing a password | 10 failures / 15 min |
+| Client desk requests | 10 / hour |
+| Shifts and transactions | 30 / hour each |
+| Job applications | 5 / hour |
+| Posting to Discord | 20 / hour |
+
+Sign-in and password changes count **failures only**, so using the site
+normally is never punished. A refusal comes back as "too many attempts" with a
+wait; the counters clear themselves.
+
+**Two executives editing at once is last-write-wins.** The whole company record
+saves as one object, so if two people have the control room open on different
+pages, whoever saves second overwrites the first. In practice this only bites
+when two people edit simultaneously — worth knowing before you hand out a
+second executive account.
+
+**Usernames are first-come.** Nothing checks that a username matches the
+Minecraft account it claims to be, and there is no log of who changed what.
 
 ---
 
@@ -277,6 +438,10 @@ rather than only changing the password.
   Minecraft roleplay site, not a bank, and it should never hold a password that
   protects anything real.
 - Give out new passwords in a direct message, never in a public channel.
+- Read the hiring board before promoting anybody. The wage somebody is asking
+  for is on their application, and staff cannot see each other's.
+- Keep an eye on open shifts. One left open sits in the log as "still on" until
+  somebody closes it, and only that account can.
 
 ---
 
@@ -297,6 +462,23 @@ in with the `ADMIN_USERNAME` account.
 `ADMIN_USERNAME`, the record was created with no accounts. Delete the key
 `ucc:company:v1` in the Upstash console, set the variables, redeploy, and load
 the site again.
+
+**No hammer on the People tab** — that is chief-executive only. An executive
+edits the chart through Control room → Divisions and Staff instead.
+
+**"Only the chief executive can change who holds that seat"** — an executive
+can appoint the first CEO, but not a second one, and cannot unseat one. Sign in
+as the chief executive, or clear the seat from that account first.
+
+**"You are already clocked in"** — there is an open shift on that account. Clock
+out of it before starting another; a second open row would strand the first.
+
+**Nothing arrives in Discord** — check you pressed **Test every webhook** and
+it reported back. If the test works but notices do not appear, the notice was
+not public: only public notices post, and only with the box ticked.
+
+**Vercel Web Analytics shows nothing** — it has to be switched on for the
+project in the Vercel dashboard. The browser console says so in as many words.
 
 **Bot says "Bad or missing bot key"** — `BOT_API_KEY` differs between Vercel and
 Railway. They must be character-for-character identical.

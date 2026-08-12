@@ -33,7 +33,10 @@ Repo: `Zanegompf/UCC-Website`. Hosting: Vercel. Bot host: Railway.
 
 ```
 app/
-  Site.jsx          ~2600 lines, one "use client" component tree — the whole UI
+  Site.jsx          ~4800 lines, one "use client" component tree — the whole UI.
+                    Navigate by the banner comments: utilities, primitives,
+                    marks and the hero, list editor, org chart, control room,
+                    sign in, app (App itself is last, from ~4600)
   page.jsx          server component, renders <Site/>
   layout.jsx        html shell, metadata
   globals.css       font @import, tailwind directives, focus + hover styles
@@ -612,9 +615,27 @@ Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
   Minecraft account.
 - No audit log of privileged actions.
 - `requests`, `announcements`, `shifts`, `transactions` and `applications` are
-  capped (200 / 60 / 200 / 200 / 200) by slicing on write. These are rolling
-  windows, not archives — past the cap the oldest fall off and are gone.
+  capped (200 / 60 / 200 / 200 / 200) by slicing on write, and `stock.history` at
+  120. These are rolling windows, not archives — past the cap the oldest fall off
+  and are gone.
+- The staff room renders only the most recent 40 shifts and transactions. The
+  rest are on the record and show in the control room; this is a page-length
+  decision, not a cap.
 - Concurrent exec edits are last-write-wins across the whole blob.
+
+## The caps live in three places
+
+`CAPS` in `app/api/data/route.js` is the authority, the append routes repeat it
+for the list they touch, and **the control room trims client-side as well** —
+`publish()` for `announcements` and `addPricePoint()` for `stock.history` in
+`Site.jsx`.
+
+All three have to agree. They did not: publishing a notice trimmed to 40 against
+a cap of 60, and recording a price trimmed history to 60 against 120, so a
+notice posted on the site quietly dropped entries that the same notice posted
+from Discord would have kept. Both are now 60 and 120. If you change a cap,
+change it in every place that trims that list, and grep for `slice(` in
+`Site.jsx` before assuming the route is the only one.
 
 ## House rules for changes
 
