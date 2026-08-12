@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -87,6 +87,42 @@ const ROLE_TABS = [
 // add it here too. Posting a notice is the only thing on this site that reaches
 // a webhook; requests, shifts and applications all stay put.
 const HOOK_EVENTS = ["All posts", "Announcements"];
+
+/**
+ * The tabs, and their addresses.
+ *
+ * Each one is a slug in the URL hash — `#staff-room` — so a refresh, a
+ * bookmark or a pasted link all come back to the same tab instead of dropping
+ * you on the overview. The hash is used rather than a real route because the
+ * whole site is one client component behind a single page; giving each tab a
+ * route would mean splitting that up for no gain the address bar does not
+ * already provide.
+ *
+ * `Account` is not in the list because it only exists while somebody is signed
+ * in, but it is addressable all the same.
+ */
+const TABS = [
+  { name: "Overview", min: 0 },
+  { name: "Share", min: 0 },
+  { name: "Financials", min: 0 },
+  { name: "People", min: 0 },
+  { name: "Projects", min: 0 },
+  { name: "Client desk", min: 0 },
+  { name: "Staff room", min: 0 },
+  { name: "Control room", min: LEVEL.exec },
+];
+
+const ACCOUNT_TAB = "Account";
+const TAB_NAMES = [...TABS.map((t) => t.name), ACCOUNT_TAB];
+
+const slugOf = (name) => String(name).toLowerCase().replace(/\s+/g, "-");
+
+function tabFromHash() {
+  if (typeof window === "undefined") return null;
+  const slug = (window.location.hash || "").replace(/^#/, "");
+  if (!slug) return null;
+  return TAB_NAMES.find((n) => slugOf(n) === slug) || null;
+}
 
 const PREFS_KEY = "ucc:prefs";
 const DEFAULT_PREFS = { fullFigures: false, landingTab: "Overview" };
@@ -3671,11 +3707,68 @@ export default function App() {
   const role = session.role || "public";
   FULL_FIGURES = Boolean(prefs.fullFigures);
 
+  // Skips the first run of the effect below, so restoring the tab from the
+  // address bar is not immediately overwritten by the tab we started on.
+  const settled = useRef(false);
+
   useEffect(() => {
     const p = loadPrefs();
     setPrefs(p);
     FULL_FIGURES = Boolean(p.fullFigures);
-    if (p.landingTab) setTab(p.landingTab);
+
+    // The address wins over the landing preference. Somebody following a link
+    // to a tab, or refreshing on one, means that tab — the preference is only
+    // about where a plain visit starts.
+    const fromUrl = tabFromHash();
+    if (fromUrl) setTab(fromUrl);
+    else if (p.landingTab) setTab(p.landingTab);
+  }, []);
+
+  // Keep the address on whatever is showing. Pushing rather than replacing
+  // means the browser's back button walks back through the tabs, which is what
+  // anyone who used them as links will expect.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!settled.current) {
+      settled.current = true;
+      return;
+    }
+    const want = "#" + slugOf(tab);
+    if (window.location.hash !== want) {
+      window.history.pushState(null, "", want);
+    }
+  }, [tab]);
+
+  // The listener below is attached once, so it would otherwise close over the
+  // session as it was at mount — signed out forever, whatever happened since.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
+  // Back and forward move between tabs rather than off the site.
+  useEffect(() => {
+    const onPop = () => {
+      const t = tabFromHash();
+      if (!t) return;
+      // By the time anything can be navigated the session is known, so this
+      // can refuse the account tab outright rather than leaving the effect
+      // below to clean up after a blank render.
+      if (t === ACCOUNT_TAB && !sessionRef.current?.username) {
+        // Correct the address as well. Setting the tab alone may be a no-op if
+        // the overview was already showing, and then the effect that syncs the
+        // hash never runs, leaving `#account` above the overview. Replace
+        // rather than push: this is a correction, not somewhere to go back to.
+        window.history.replaceState(null, "", "#overview");
+        setTab("Overview");
+        return;
+      }
+      setTab(t);
+    };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("hashchange", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("hashchange", onPop);
+    };
   }, []);
 
   const load = useCallback(async () => {
@@ -3762,20 +3855,21 @@ export default function App() {
 
   const tabs = useMemo(
     () => [
-      { name: "Overview", min: 0 },
-      { name: "Share", min: 0 },
-      { name: "Financials", min: 0 },
-      { name: "People", min: 0 },
-      { name: "Projects", min: 0 },
-      { name: "Client desk", min: 0 },
-      { name: "Staff room", min: 0 },
-      { name: "Control room", min: LEVEL.exec },
+      ...TABS,
       ...(session.username
-        ? [{ name: "Account", label: session.username, min: 0 }]
+        ? [{ name: ACCOUNT_TAB, label: session.username, min: 0 }]
         : []),
     ],
     [session.username]
   );
+
+  // The backstop for the one case the listener cannot cover: a cold load
+  // straight onto `#account`, where the session is not known until the record
+  // arrives. Waiting for `data` is what lets a signed-in refresh stay put
+  // instead of being bounced to the overview.
+  useEffect(() => {
+    if (data && tab === ACCOUNT_TAB && !session.username) setTab("Overview");
+  }, [data, tab, session.username]);
 
   if (!data) {
     return (

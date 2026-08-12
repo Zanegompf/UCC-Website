@@ -176,6 +176,34 @@ the announcements channel. `"All posts"` on a hook means it takes everything;
 passing `"All posts"` *as the event* is a broadcast to every hook, which is
 what the control room's test button uses.
 
+## Tabs and the address bar
+
+Each tab is a slug in the URL hash — `#staff-room`, `#client-desk` — so a
+refresh, a bookmark or a pasted link all land on the same tab instead of
+dropping back to the overview. `TABS` in `Site.jsx` is the single source for the
+names, their slugs and the level each needs; the visible nav is derived from it.
+
+The hash is used rather than real routes because the whole site is one client
+component behind a single page. Giving each tab a route would mean splitting
+that up for nothing the address bar does not already do.
+
+The address wins over the `landingTab` preference: that preference only decides
+where a plain visit starts. Tab changes `pushState`, so back and forward walk
+through tabs.
+
+**`#account` is the awkward one** — it is reachable while signed out, and that
+tab renders nothing without a session, which is a blank page rather than an
+error. Two guards, because one is not enough:
+
+- the `hashchange` / `popstate` listener refuses it outright and rewrites the
+  hash to `#overview`. It reads the session through a **ref**: the listener is
+  attached once, so a closed-over `session` would be the mount-time one forever.
+  It also has to fix the hash itself, since setting the tab may be a no-op when
+  the overview is already showing, and the syncing effect then never runs.
+- a `data`-gated effect covers the cold load, where the session is not known
+  until the record arrives. Gating on `data` is what lets a signed-in refresh on
+  `#account` stay there instead of being bounced.
+
 ## The company tree
 
 `divisions` is a tree, not a list. `parent` holds the **name** of the entry
