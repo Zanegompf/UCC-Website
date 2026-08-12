@@ -355,6 +355,17 @@ self-registration is one click from the sign-in button.
 
 Applications do not post to Discord, for the same reason requests do not.
 
+Each application shows the **account it was filed from** underneath the notes,
+with a `RolePicker` beside it, so hiring somebody is done where you read them
+rather than by carrying a name over to the control room. Note the account and
+the in-game name on the form need not match; the account is the one that access
+actually hangs off.
+
+Accounts never travel with the company record, so the board fetches
+`/api/users` separately — which is also why an application whose account has
+since been deleted says so rather than offering a control that would fail. The
+picker is the same component the accounts editor uses, so the two cannot drift.
+
 Reading them is **exec only**, one level above client requests: an application
 states what somebody expects to be paid, and staff have no reason to see each
 other's asking price. The hiring board in the staff room is therefore rendered

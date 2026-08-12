@@ -2764,11 +2764,120 @@ function TransactionModal({ onClose, onSubmit, session, data }) {
   );
 }
 
+/**
+ * The account an application was filed from, and its access.
+ *
+ * This is the account, not the in-game name typed on the form — the two need
+ * not match, and it is the account that hiring somebody actually changes. It
+ * sits on the application so that promoting a new hire does not mean going to
+ * the control room and matching names by memory.
+ */
+function ApplicantAccount({ account, users, me, busy, onPick }) {
+  const line = { fontFamily: F.body, fontSize: 13, color: C.inkSoft };
+
+  return (
+    <div className="mt-4 pt-3" style={{ borderTop: `1px dashed ${C.rule}` }}>
+      <Eyebrow>Account</Eyebrow>
+
+      {!account ? (
+        <p className="mt-1" style={line}>
+          Not recorded — this one predates applications keeping the account.
+        </p>
+      ) : (
+        <>
+          <div className="mt-1 mb-2 flex flex-wrap items-center gap-2">
+            <span style={{ fontFamily: F.mono, fontSize: 13, color: C.ink }}>
+              {account}
+            </span>
+            {account === me && (
+              <span
+                style={{
+                  fontFamily: F.mono,
+                  fontSize: 9.5,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: C.gold,
+                }}
+              >
+                you
+              </span>
+            )}
+            {busy === account && (
+              <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.ledger }}>
+                saving…
+              </span>
+            )}
+          </div>
+
+          {users === null ? (
+            <p style={line}>Looking up their access…</p>
+          ) : (
+            (() => {
+              const user = users.find((u) => u.username === account);
+              if (!user) {
+                return (
+                  <p style={{ ...line, color: C.seal }}>
+                    That account no longer exists, so there is nothing to change.
+                  </p>
+                );
+              }
+              return (
+                <RolePicker
+                  role={user.role}
+                  onPick={(role) => onPick(account, role)}
+                  locked={account === me}
+                  lockedReason="You cannot change your own access level"
+                  busy={busy === account}
+                />
+              );
+            })()
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction }) {
   const [clocking, setClocking] = useState(null); // "in" | "out" | null
   const [filed, setFiled] = useState("");
   const [showTransaction, setShowTransaction] = useState(false);
   const [logged, setLogged] = useState("");
+
+  // Accounts never travel with the company record, so the hiring board has to
+  // ask for them separately to know what access an applicant already holds.
+  // Executives only, which is also who the board itself is for.
+  const [users, setUsers] = useState(null);
+  const [accountMsg, setAccountMsg] = useState("");
+  const [busyAccount, setBusyAccount] = useState(null);
+
+  useEffect(() => {
+    if (level < LEVEL.exec) return;
+    let live = true;
+    api("/api/users")
+      .then((r) => live && setUsers(r.users))
+      .catch(() => live && setUsers([]));
+    return () => {
+      live = false;
+    };
+  }, [level]);
+
+  const setApplicantRole = async (username, role) => {
+    setBusyAccount(username);
+    setAccountMsg("");
+    try {
+      const r = await api("/api/users", {
+        method: "PATCH",
+        body: JSON.stringify({ username, role }),
+      });
+      setUsers(r.users);
+      setAccountMsg(`${username} is now ${ROLE_NAME[role] || role}.`);
+    } catch (e) {
+      setAccountMsg(e.message);
+    } finally {
+      setBusyAccount(null);
+    }
+  };
 
   if (level < LEVEL.staff) {
     return (
@@ -2912,8 +3021,21 @@ function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction })
                       </p>
                     </div>
                   ))}
+
+                <ApplicantAccount
+                  account={a.account}
+                  users={users}
+                  me={session?.username}
+                  busy={busyAccount}
+                  onPick={setApplicantRole}
+                />
               </Panel>
             ))}
+            {accountMsg && (
+              <p style={{ fontFamily: F.mono, fontSize: 11.5, color: C.inkSoft }}>
+                {accountMsg}
+              </p>
+            )}
           </div>
         )}
       </section>
@@ -3172,6 +3294,53 @@ function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction })
 
 /* ----------------------------- control room ----------------------------- */
 
+/**
+ * The segmented access control. Shared by the accounts editor and the hiring
+ * board, so promoting somebody looks and behaves the same wherever it is done.
+ */
+function RolePicker({ role, onPick, locked, lockedReason, busy }) {
+  const fill = {
+    ceo: C.gold,
+    exec: C.seal,
+    staff: C.ledger,
+    client: C.ink,
+  };
+
+  return (
+    <div className="flex flex-wrap" style={{ border: `1px solid ${C.rule}` }}>
+      {ROLE_TABS.map((r, i) => {
+        const active = role === r.key;
+        return (
+          <button
+            key={r.key}
+            type="button"
+            onClick={() => {
+              if (!active && !locked) onPick(r.key);
+            }}
+            disabled={locked || busy}
+            title={locked ? lockedReason : r.hint}
+            style={{
+              fontFamily: F.mono,
+              fontSize: 10,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              padding: "6px 11px",
+              border: "none",
+              borderRight: i < ROLE_TABS.length - 1 ? `1px solid ${C.rule}` : "none",
+              cursor: locked ? "not-allowed" : active ? "default" : "pointer",
+              opacity: locked ? 0.45 : 1,
+              background: active ? fill[r.key] || C.inkSoft : "transparent",
+              color: active ? (r.key === "ceo" ? C.night : C.paper) : C.inkSoft,
+            }}
+          >
+            {r.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Accounts({ session }) {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ username: "", password: "", role: "client" });
@@ -3296,50 +3465,13 @@ function Accounts({ session }) {
               >
                 Access
               </span>
-              <div className="flex" style={{ border: `1px solid ${C.rule}` }}>
-                {ROLE_TABS.map((r, i) => {
-                  const active = u.role === r.key;
-                  const locked = u.username === me;
-                  return (
-                    <button
-                      key={r.key}
-                      onClick={() => {
-                        if (!active && !locked) setRole(u.username, r.key);
-                      }}
-                      disabled={locked || busyUser === u.username}
-                      title={
-                        locked
-                          ? "You cannot change your own access level"
-                          : r.hint
-                      }
-                      style={{
-                        fontFamily: F.mono,
-                        fontSize: 10,
-                        letterSpacing: "0.12em",
-                        textTransform: "uppercase",
-                        padding: "6px 11px",
-                        border: "none",
-                        borderRight:
-                          i < ROLE_TABS.length - 1 ? `1px solid ${C.rule}` : "none",
-                        cursor: locked ? "not-allowed" : active ? "default" : "pointer",
-                        opacity: locked ? 0.45 : 1,
-                        background: active
-                          ? r.key === "exec"
-                            ? C.seal
-                            : r.key === "staff"
-                            ? C.ledger
-                            : r.key === "client"
-                            ? C.ink
-                            : C.inkSoft
-                          : "transparent",
-                        color: active ? C.paper : C.inkSoft,
-                      }}
-                    >
-                      {r.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <RolePicker
+                role={u.role}
+                onPick={(role) => setRole(u.username, role)}
+                locked={u.username === me}
+                lockedReason="You cannot change your own access level"
+                busy={busyUser === u.username}
+              />
             </div>
           </div>
         ))}
