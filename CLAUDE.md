@@ -148,7 +148,7 @@ company{name,short,ticker,exchange,founded,hq,ceo,tagline,mission,discordInvite,
 divisions[]{name,code,parent,lead,blurb}          <- a tree; see below
 stock{price,prevClose,shares,listed,updated,history[]{label,price}}
 financials{periods[]{label,revenue,expenses}, balance{cash,inventory,property,investments,liabilities}, note}
-staff[]{name,role,dept,joined,note,internal}
+staff[]{name,role,dept,joined,note,internal}    <- dept: comma-separated block names
 projects[]{name,status,visibility,progress,target,summary}
 services[]{name,price,detail}
 announcements[]{ts,author,audience,title,body}
@@ -232,6 +232,21 @@ carries a `seen` set and stops rather than recursing forever; do not remove it.
 off a seeded governing chain and adding Lending under Capital, preserving names,
 leads and blurbs. Like the other back-fills it is not written until something
 saves, so it recomputes on each read until an executive saves the record.
+
+**The People tab is the same chart with people in it.** `OrgChart` takes a
+`people` flag; the blocks then hold bullet lists instead of the compact
+governing card, and the spine is wider to fit them.
+
+Who appears where comes from `staff[].dept`, matched against block names
+case-insensitively and **split on commas**, so one person can sit in two — the
+chief executive chairs the board and sits on the committee. A `dept` matching
+no block does not vanish: `groupStaffByNode` returns those separately and the
+tab lists them under "Elsewhere on the books", because a typo silently deleting
+someone from the page would be worse than an untidy section.
+
+`ensureData()` rewrites the old `dept: "Executive"` to `"Executive Committee"`,
+and replaces the committee's blurb **only where it is still the old seeded
+wording** — an executive who rewrote it keeps theirs.
 
 ## The shift log
 

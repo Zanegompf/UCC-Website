@@ -865,6 +865,115 @@ function OrgGoverningCard({ d }) {
   );
 }
 
+/**
+ * Somebody on the chart. `dept` is matched against the block names, so one
+ * person can sit in more than one — the chief executive chairs the board and
+ * sits on the committee, and should show in both.
+ */
+function OrgMembers({ members, level }) {
+  if (!members.length) {
+    return (
+      <p
+        className="mt-3"
+        style={{ fontFamily: F.body, fontSize: 13, color: C.inkSoft, fontStyle: "italic" }}
+      >
+        Nobody listed yet.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="mt-3" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      {members.map((m, i) => (
+        <li key={i} className="flex gap-2 mb-2">
+          <span
+            aria-hidden="true"
+            className="shrink-0"
+            style={{ width: 4, height: 4, background: C.gold, marginTop: 8 }}
+          />
+          <div className="min-w-0">
+            <div style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink, lineHeight: 1.45 }}>
+              {m.role}
+              {m.name && (
+                <>
+                  {" — "}
+                  <span style={{ fontFamily: F.mono, fontSize: 12.5 }}>{m.name}</span>
+                </>
+              )}
+            </div>
+            {m.note && (
+              <div
+                style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.5 }}
+              >
+                {m.note}
+              </div>
+            )}
+            {level >= LEVEL.staff && m.internal && (
+              <div
+                style={{ fontFamily: F.body, fontSize: 12.5, color: C.seal, lineHeight: 1.5 }}
+              >
+                {m.internal}
+              </div>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The same blocks as the overview chart, but holding people. */
+function OrgPeopleCard({ d, members, governing, level }) {
+  return (
+    <Panel
+      tone={governing ? "deep" : undefined}
+      raised={!governing}
+      style={{ padding: 20, height: "100%", display: "flex", flexDirection: "column" }}
+    >
+      {d.code ? (
+        <div
+          className="inline-block mb-4 self-start"
+          style={{
+            padding: "5px 9px",
+            border: `1px solid ${C.gold}`,
+            color: C.gold,
+            fontFamily: F.mono,
+            fontSize: 11,
+            letterSpacing: "0.1em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {d.code}
+        </div>
+      ) : (
+        <div className="mb-3">
+          <Eyebrow>Governing</Eyebrow>
+        </div>
+      )}
+      <h3
+        style={{
+          fontFamily: F.display,
+          fontSize: 24,
+          lineHeight: 1.1,
+          color: C.ink,
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {d.name}
+      </h3>
+      {d.blurb && (
+        <p
+          className="mt-2"
+          style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
+        >
+          {d.blurb}
+        </p>
+      )}
+      <OrgMembers members={members} level={level} />
+    </Panel>
+  );
+}
+
 function OrgCard({ d, governing }) {
   if (governing) return <OrgGoverningCard d={d} />;
 
@@ -981,7 +1090,7 @@ function OrgBranch({ n }) {
  * one narrow centred column so the board, the committee and the department
  * line up rather than stretching across the page.
  */
-function OrgNode({ node, childrenOf, spine, seen }) {
+function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level }) {
   // An executive can type any name into `parent`, so a cycle is reachable from
   // the control room. Stop rather than recurse forever.
   if (seen.has(node.name)) return null;
@@ -990,37 +1099,42 @@ function OrgNode({ node, childrenOf, spine, seen }) {
   const kids = (childrenOf.get(node.name) || []).filter((k) => !nextSeen.has(k.name));
   const governing = !node.code;
 
+  // The people chart puts bullet lists inside the governing blocks, so they
+  // need the full card and a wider column than the overview's compact one.
+  const spineWidth = people ? 560 : 420;
+  const stem = people ? 26 : governing ? 16 : 26;
+
+  const pass = { childrenOf, people, membersOf, level };
+
   return (
     <div>
-      <div style={spine ? { maxWidth: 420, margin: "0 auto" } : undefined}>
-        <OrgCard d={node} governing={governing} />
+      <div style={spine ? { maxWidth: spineWidth, margin: "0 auto" } : undefined}>
+        {people ? (
+          <OrgPeopleCard
+            d={node}
+            governing={governing}
+            level={level}
+            members={membersOf.get(node.name) || []}
+          />
+        ) : (
+          <OrgCard d={node} governing={governing} />
+        )}
       </div>
 
       {kids.length === 1 && (
         <>
-          <OrgStem height={governing ? 16 : 26} />
-          <OrgNode
-            node={kids[0]}
-            childrenOf={childrenOf}
-            spine={spine}
-            seen={nextSeen}
-          />
+          <OrgStem height={stem} />
+          <OrgNode node={kids[0]} spine={spine} seen={nextSeen} {...pass} />
         </>
       )}
 
       {kids.length > 1 && (
         <>
-          <OrgStem height={governing ? 16 : 26} />
+          <OrgStem height={stem} />
           <OrgBranch n={kids.length} />
           <div className="ucc-org-row" style={{ "--ucc-cols": kids.length }}>
             {kids.map((k) => (
-              <OrgNode
-                key={k.name}
-                node={k}
-                childrenOf={childrenOf}
-                spine={false}
-                seen={nextSeen}
-              />
+              <OrgNode key={k.name} node={k} spine={false} seen={nextSeen} {...pass} />
             ))}
           </div>
         </>
@@ -1029,7 +1143,45 @@ function OrgNode({ node, childrenOf, spine, seen }) {
   );
 }
 
-function OrgChart({ divisions }) {
+/** Everything a `dept` field can name, normalised for comparison. */
+function deptsOf(person) {
+  return String(person?.dept || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Staff grouped by the block they sit in, plus anyone whose department matches
+ * no block. The leftovers matter: a typo in `dept` would otherwise drop a
+ * person off the page entirely, so the People tab lists them separately rather
+ * than losing them.
+ */
+function groupStaffByNode(divisions, staff) {
+  const byName = new Map();
+  for (const d of divisions || []) {
+    if (d?.name) byName.set(d.name.toLowerCase(), d.name);
+  }
+
+  const membersOf = new Map();
+  const unplaced = [];
+
+  for (const person of staff || []) {
+    const names = deptsOf(person).map((k) => byName.get(k)).filter(Boolean);
+    if (!names.length) {
+      unplaced.push(person);
+      continue;
+    }
+    for (const name of names) {
+      if (!membersOf.has(name)) membersOf.set(name, []);
+      membersOf.get(name).push(person);
+    }
+  }
+
+  return { membersOf, unplaced };
+}
+
+function OrgChart({ divisions, people, membersOf, level }) {
   const { roots, childrenOf } = useMemo(() => {
     const list = (divisions || []).filter((d) => d?.name);
     const names = new Set(list.map((d) => d.name));
@@ -1067,6 +1219,9 @@ function OrgChart({ divisions }) {
           childrenOf={childrenOf}
           spine
           seen={new Set()}
+          people={people}
+          membersOf={membersOf || new Map()}
+          level={level}
         />
       ))}
     </div>
@@ -1734,60 +1889,73 @@ function LedgerRow({ label, value, bold }) {
 }
 
 function People({ data, level }) {
-  const depts = [...new Set(data.staff.map((s) => s.dept))];
+  const { membersOf, unplaced } = useMemo(
+    () => groupStaffByNode(data.divisions, data.staff),
+    [data.divisions, data.staff]
+  );
+
   return (
     <div className="space-y-10">
       <section>
         <SectionHead
           index="I"
-          title="Who works here"
+          title="Who sits where"
           note={
             level >= LEVEL.staff
-              ? "Internal notes are visible to you. Keep them internal."
-              : "The people you will actually be dealing with."
+              ? "The same structure as the overview, with the people in it. Internal notes are visible to you — keep them internal."
+              : "The same structure as the overview, with the people in it."
           }
         />
-        {depts.map((d) => (
-          <div key={d} className="mb-8">
-            <div className="mb-3">
-              <Eyebrow color={C.gold}>{d}</Eyebrow>
-            </div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {data.staff
-                .filter((s) => s.dept === d)
-                .map((s, i) => (
-                  <Panel key={i} style={{ padding: 18 }}>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <h3 style={{ fontFamily: F.display, fontSize: 22, color: C.ink, lineHeight: 1.1 }}>
-                        {s.name}
-                      </h3>
-                      <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft }}>
-                        {s.joined}
-                      </span>
-                    </div>
-                    <div className="mt-1" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger, letterSpacing: "0.06em" }}>
-                      {s.role}
-                    </div>
-                    <p className="mt-3" style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}>
-                      {s.note}
-                    </p>
-                    {level >= LEVEL.staff && s.internal && (
-                      <div
-                        className="mt-3 pt-3"
-                        style={{ borderTop: `1px dashed ${C.rule}` }}
-                      >
-                        <Eyebrow color={C.seal}>Internal</Eyebrow>
-                        <p style={{ fontFamily: F.body, fontSize: 13, color: C.ink, marginTop: 4 }}>
-                          {s.internal}
-                        </p>
-                      </div>
-                    )}
-                  </Panel>
-                ))}
-            </div>
-          </div>
-        ))}
+        <OrgChart
+          divisions={data.divisions}
+          people
+          membersOf={membersOf}
+          level={level}
+        />
       </section>
+
+      {unplaced.length > 0 && (
+        <section>
+          <SectionHead
+            index="II"
+            title="Elsewhere on the books"
+            note="On the staff list, but their department does not match a block above. Fix the department in the control room and they will move into the chart."
+          />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {unplaced.map((s, i) => (
+              <Panel key={i} style={{ padding: 18 }}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 style={{ fontFamily: F.display, fontSize: 22, color: C.ink, lineHeight: 1.1 }}>
+                    {s.name}
+                  </h3>
+                  <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft }}>
+                    {s.joined}
+                  </span>
+                </div>
+                <div
+                  className="mt-1"
+                  style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger, letterSpacing: "0.06em" }}
+                >
+                  {s.role}
+                </div>
+                {s.dept && (
+                  <div className="mt-1" style={{ fontFamily: F.mono, fontSize: 11, color: C.seal }}>
+                    {s.dept}
+                  </div>
+                )}
+                {s.note && (
+                  <p
+                    className="mt-3"
+                    style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
+                  >
+                    {s.note}
+                  </p>
+                )}
+              </Panel>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -3106,14 +3274,22 @@ function ControlRoom({ data, save, level, session }) {
           ]}
         />
         <ListEditor
-          title="Staff"
+          title="Staff, and the block each one appears in"
           items={data.staff}
-          blank={{ name: "", role: "", dept: "Executive", joined: "", note: "", internal: "" }}
+          blank={{ name: "", role: "", dept: "Executive Committee", joined: "", note: "", internal: "" }}
           onChange={(v) => set("staff", v)}
           fields={[
             { k: "name", label: "In-game name" },
             { k: "role", label: "Title" },
-            { k: "dept", label: "Division" },
+            {
+              k: "dept",
+              label: "Appears in",
+              full: true,
+              hint:
+                "A block on the people chart: " +
+                (data.divisions || []).map((d) => d.name).filter(Boolean).join(" · ") +
+                ". Separate with commas to appear in more than one.",
+            },
             { k: "joined", label: "Joined" },
             { k: "note", label: "Public note", full: true, rows: 2 },
             { k: "internal", label: "Internal note (staff only)", full: true, rows: 2 },
