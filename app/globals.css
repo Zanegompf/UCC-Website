@@ -63,6 +63,8 @@ input:focus, textarea:focus, select:focus { border-color: #111C2E !important; }
   .ucc-org-branch { display: grid; }
 }
 
+.ucc-hub:hover span:first-child { color: #9B3630; }
+
 ::selection { background: #C0913A; color: #0C1724; }
 
 @media (prefers-reduced-motion: reduce) {

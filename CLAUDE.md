@@ -330,6 +330,21 @@ may be blank, so the route requires a `type` plus at least one of them.
 
 Staff-visible, like the shift log — staff file them, so staff can read them.
 
+## The control room
+
+Sections I–III (post a notice, move the price, Discord) stay on the page.
+**Everything past them is one page each**, reached from a hub of cards under
+section IV. They used to be stacked in a single "Records" column, so reaching
+the job list meant scrolling past the whole company.
+
+The pages live in a `PAGES` array inside `ControlRoom` — the hub and the page
+body both read it, so a card and its contents cannot drift apart. Add an entry
+there and it appears in both. `count` is optional and shows on the card.
+
+Which page is open is **local state, not in the address**: the tab itself is in
+the hash, but the editor you last opened is not worth a history entry. Refresh
+returns to the hub.
+
 ## Hiring
 
 `POST /api/applications` gates on `effectiveRole(...) !== "public"`, **not** on a

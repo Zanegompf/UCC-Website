@@ -3412,6 +3412,10 @@ function Accounts({ session }) {
 }
 
 function ControlRoom({ data, save, level, session }) {
+  // Which of the pages past Discord is open, or null for the hub. Deliberately
+  // local: the tab itself is in the address, but which editor you last had open
+  // is not worth a history entry.
+  const [page, setPage] = useState(null);
   const [pricePoint, setPricePoint] = useState({ label: "", price: "" });
   const [post, setPost] = useState({ title: "", body: "", audience: "public", author: "Executive", toDiscord: true });
   const [discordState, setDiscordState] = useState("");
@@ -3479,6 +3483,301 @@ function ControlRoom({ data, save, level, session }) {
     setDiscordState(msg);
     setPost({ ...post, title: "", body: "" });
   };
+
+  /**
+   * Everything past Discord, one page each.
+   *
+   * These used to be stacked under a single "Records" heading — a dozen
+   * editors in one column, so reaching the job list meant scrolling past the
+   * whole company. Splitting them costs a click and gives each list the
+   * screen.
+   *
+   * Held as data rather than markup so the hub and the page itself cannot
+   * drift apart: both read this list.
+   */
+  const PAGES = [
+    {
+      key: "company",
+      label: "Company details",
+      blurb: "Name, ticker, headquarters, tagline and the mission statement.",
+      body: (
+        <Panel style={{ padding: 20 }}>
+          <div className="grid md:grid-cols-2 gap-x-5">
+            <Field label="Name" value={data.company.name} onChange={(v) => set("company.name", v)} />
+            <Field label="Short name" value={data.company.short} onChange={(v) => set("company.short", v)} />
+            <Field label="Ticker" value={data.company.ticker} onChange={(v) => set("company.ticker", v)} />
+            <Field label="Exchange" value={data.company.exchange} onChange={(v) => set("company.exchange", v)} />
+            <Field label="Headquarters" value={data.company.hq} onChange={(v) => set("company.hq", v)} />
+            <Field label="Founded" value={data.company.founded} onChange={(v) => set("company.founded", v)} />
+            <Field label="Chief executive" value={data.company.ceo} onChange={(v) => set("company.ceo", v)} />
+            <Field label="Server IP" value={data.company.serverIp} onChange={(v) => set("company.serverIp", v)} />
+          </div>
+          <Field label="Tagline" value={data.company.tagline} onChange={(v) => set("company.tagline", v)} />
+          <Field label="Mission statement" rows={7} value={data.company.mission} onChange={(v) => set("company.mission", v)} />
+        </Panel>
+      ),
+    },
+    {
+      key: "divisions",
+      label: "Divisions",
+      blurb: "The company tree: what sits under what, and what each block does.",
+      count: (data.divisions || []).length,
+      body: (
+        <ListEditor
+          title="Divisions and the tree they sit in"
+          items={data.divisions}
+          blank={{ name: "", code: "", parent: "", lead: "", blurb: "" }}
+          onChange={(v) => set("divisions", v)}
+          fields={[
+            { k: "name", label: "Name" },
+            {
+              k: "parent",
+              label: "Sits under",
+              options: ["", ...(data.divisions || []).map((d) => d.name).filter(Boolean)],
+              hint: "Leave blank for the top of the chart.",
+            },
+            {
+              k: "code",
+              label: "Code",
+              hint: "Leave blank for a governing body. Only coded entries count as divisions.",
+            },
+            // No "Lead" field: nothing renders it any more. Who is in a block
+            // comes from the staff list and shows on the People tab. The stored
+            // values are left alone rather than stripped, so putting it back is
+            // adding this line again and nothing else.
+            { k: "blurb", label: "What it does", full: true, rows: 2 },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "staff",
+      label: "Staff",
+      blurb: "Who works here, their titles, and the block each appears in.",
+      count: (data.staff || []).length,
+      body: (
+        <ListEditor
+          title="Staff, and the block each one appears in"
+          items={data.staff}
+          blank={{ name: "", role: "", dept: "Executive Committee", joined: "", note: "", internal: "" }}
+          onChange={(v) => set("staff", v)}
+          fields={[
+            { k: "name", label: "In-game name" },
+            { k: "role", label: "Title" },
+            {
+              k: "dept",
+              label: "Appears in",
+              full: true,
+              hint:
+                "A block on the people chart: " +
+                (data.divisions || []).map((d) => d.name).filter(Boolean).join(" · ") +
+                ". Separate with commas to appear in more than one.",
+            },
+            { k: "joined", label: "Joined" },
+            { k: "note", label: "Public note", full: true, rows: 2 },
+            { k: "internal", label: "Internal note (staff only)", full: true, rows: 2 },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "projects",
+      label: "Projects",
+      blurb: "What the company is building, and who is allowed to see it.",
+      count: (data.projects || []).length,
+      body: (
+        <ListEditor
+          title="Projects"
+          items={data.projects}
+          blank={{ name: "", status: "Drafting", visibility: "public", progress: 0, target: "", summary: "" }}
+          onChange={(v) => set("projects", v)}
+          fields={[
+            { k: "name", label: "Name" },
+            { k: "status", label: "Status", options: ["Drafting", "Negotiating", "Building", "In review", "Done", "Shelved"] },
+            { k: "visibility", label: "Who can see it", options: ["public", "client", "staff"] },
+            { k: "progress", label: "Progress %", type: "number" },
+            { k: "target", label: "Target" },
+            { k: "summary", label: "Summary", full: true, rows: 2 },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "services",
+      label: "Rate card",
+      blurb: "What the company charges. Visible to clients and above.",
+      count: (data.services || []).length,
+      body: (
+        <ListEditor
+          title="Rate card"
+          items={data.services}
+          blank={{ name: "", price: "", detail: "" }}
+          onChange={(v) => set("services", v)}
+          fields={[
+            { k: "name", label: "Service" },
+            { k: "price", label: "Price" },
+            { k: "detail", label: "Detail", full: true, rows: 2 },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "financials",
+      label: "Financials",
+      blurb: "Monthly revenue and costs, and the balance sheet behind them.",
+      count: (data.financials?.periods || []).length,
+      body: (
+        <>
+          <ListEditor
+            title="Monthly figures"
+            items={data.financials.periods}
+            blank={{ label: "", revenue: 0, expenses: 0 }}
+            onChange={(v) => set("financials.periods", v)}
+            fields={[
+              { k: "label", label: "Period" },
+              { k: "revenue", label: "Revenue", type: "number" },
+              { k: "expenses", label: "Expenses", type: "number" },
+            ]}
+          />
+          <Panel style={{ padding: 20 }}>
+            <Eyebrow>Balance sheet</Eyebrow>
+            <div className="grid md:grid-cols-2 gap-x-5 mt-4">
+              <Field label="Cash" type="number" value={data.financials.balance.cash} onChange={(v) => set("financials.balance.cash", v)} />
+              <Field label="Inventory" type="number" value={data.financials.balance.inventory} onChange={(v) => set("financials.balance.inventory", v)} />
+              <Field label="Property" type="number" value={data.financials.balance.property} onChange={(v) => set("financials.balance.property", v)} />
+              <Field label="Investments" type="number" value={data.financials.balance.investments} onChange={(v) => set("financials.balance.investments", v)} />
+              <Field label="Liabilities" type="number" value={data.financials.balance.liabilities} onChange={(v) => set("financials.balance.liabilities", v)} />
+            </div>
+            <Field label="Note under the figures" rows={2} value={data.financials.note} onChange={(v) => set("financials.note", v)} />
+          </Panel>
+        </>
+      ),
+    },
+    {
+      key: "requests",
+      label: "Client requests",
+      blurb: "Anything sent through the client desk, and where it got to.",
+      count: (data.requests || []).length,
+      body: (
+        <ListEditor
+          title="Requests from clients"
+          items={data.requests}
+          blank={{ ts: "", from: "", contact: "", type: "", detail: "", status: "New" }}
+          onChange={(v) => set("requests", v)}
+          fields={[
+            { k: "from", label: "From" },
+            { k: "status", label: "Status", options: ["New", "Quoted", "Agreed", "Delivered", "Declined"] },
+            { k: "detail", label: "Detail", full: true, rows: 2 },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "transactions",
+      label: "Transactions",
+      blurb: "Deals settled off the chest shops.",
+      count: (data.transactions || []).length,
+      body: (
+        <ListEditor
+          title="Transaction log"
+          items={data.transactions || []}
+          blank={{ ts: "", username: "", type: "", counterparty: "", amount: "", materials: "", detail: "" }}
+          onChange={(v) => set("transactions", v)}
+          fields={[
+            { k: "type", label: "Service rendered" },
+            { k: "counterparty", label: "With" },
+            { k: "amount", label: "Amount" },
+            { k: "materials", label: "Material count" },
+            { k: "detail", label: "Detail", full: true, rows: 2 },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "shifts",
+      label: "Shift log",
+      blurb: "Clocked hours, and what was gathered or done in them.",
+      count: (data.shifts || []).length,
+      body: (
+        <ListEditor
+          title="Shift log"
+          items={data.shifts || []}
+          blank={{ ts: "", username: "", occupation: "", timeIn: "", timeOut: "", output: "" }}
+          onChange={(v) => set("shifts", v)}
+          fields={[
+            { k: "username", label: "In-game name" },
+            { k: "occupation", label: "Occupation" },
+            { k: "timeIn", label: "Time in" },
+            { k: "timeOut", label: "Time out" },
+            { k: "output", label: "Resources gathered / services rendered", full: true, rows: 2 },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "applications",
+      label: "Applications",
+      blurb: "People who have applied to work here, and where each one stands.",
+      count: (data.applications || []).length,
+      body: (
+        <ListEditor
+          title="Applications"
+          items={data.applications || []}
+          blank={{ ts: "", username: "", discord: "", role: "", wage: "", experience: "", references: "", notes: "", status: "New" }}
+          onChange={(v) => set("applications", v)}
+          fields={[
+            { k: "username", label: "In-game name" },
+            { k: "status", label: "Status", options: ["New", "Interviewing", "Hired", "Declined"] },
+            { k: "role", label: "Desired role" },
+            { k: "wage", label: "Desired wage" },
+            { k: "notes", label: "Notes", full: true, rows: 2 },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "jobs",
+      label: "Job list",
+      blurb: "The server's jobs, as offered on the application form.",
+      count: (data.jobs || []).length,
+      body: (
+        <ListEditor
+          title="Job list offered on the application form"
+          items={data.jobs || []}
+          blank={{ name: "", category: "Trade" }}
+          onChange={(v) => set("jobs", v)}
+          fields={[
+            { k: "name", label: "Job" },
+            { k: "category", label: "Category", options: ["Trade", "Profession", "Government", "Licence", "Legal licence"] },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "accounts",
+      label: "Accounts",
+      blurb: "Everyone who can sign in, and at what level.",
+      note: "Remove an account the day someone leaves the company — that is the only thing that actually revokes their access.",
+      body: <Accounts session={session} />,
+    },
+  ];
+
+  const current = PAGES.find((p) => p.key === page);
+
+  if (current) {
+    return (
+      <div className="space-y-8">
+        <Btn onClick={() => setPage(null)}>← Control room</Btn>
+        <section>
+          <SectionHead title={current.label} note={current.note || current.blurb} />
+          {current.body}
+        </section>
+        <div>
+          <Btn onClick={() => setPage(null)}>← Control room</Btn>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-12">
@@ -3585,192 +3884,57 @@ function ControlRoom({ data, save, level, session }) {
       </section>
 
       <section>
-        <SectionHead index="IV" title="Company details" />
-        <Panel style={{ padding: 20 }}>
-          <div className="grid md:grid-cols-2 gap-x-5">
-            <Field label="Name" value={data.company.name} onChange={(v) => set("company.name", v)} />
-            <Field label="Short name" value={data.company.short} onChange={(v) => set("company.short", v)} />
-            <Field label="Ticker" value={data.company.ticker} onChange={(v) => set("company.ticker", v)} />
-            <Field label="Exchange" value={data.company.exchange} onChange={(v) => set("company.exchange", v)} />
-            <Field label="Headquarters" value={data.company.hq} onChange={(v) => set("company.hq", v)} />
-            <Field label="Founded" value={data.company.founded} onChange={(v) => set("company.founded", v)} />
-            <Field label="Chief executive" value={data.company.ceo} onChange={(v) => set("company.ceo", v)} />
-            <Field label="Server IP" value={data.company.serverIp} onChange={(v) => set("company.serverIp", v)} />
-          </div>
-          <Field label="Tagline" value={data.company.tagline} onChange={(v) => set("company.tagline", v)} />
-          <Field label="Mission statement" rows={7} value={data.company.mission} onChange={(v) => set("company.mission", v)} />
-        </Panel>
-      </section>
-
-      <section>
-        <SectionHead index="V" title="Records" note="Everything below saves the moment you type it." />
-        <ListEditor
-          title="Divisions and the tree they sit in"
-          items={data.divisions}
-          blank={{ name: "", code: "", parent: "", lead: "", blurb: "" }}
-          onChange={(v) => set("divisions", v)}
-          fields={[
-            { k: "name", label: "Name" },
-            {
-              k: "parent",
-              label: "Sits under",
-              options: ["", ...(data.divisions || []).map((d) => d.name).filter(Boolean)],
-              hint: "Leave blank for the top of the chart.",
-            },
-            {
-              k: "code",
-              label: "Code",
-              hint: "Leave blank for a governing body. Only coded entries count as divisions.",
-            },
-            // No "Lead" field: nothing renders it any more. Who is in a block
-            // comes from the staff list and shows on the People tab. The stored
-            // values are left alone rather than stripped, so putting it back is
-            // adding this line again and nothing else.
-            { k: "blurb", label: "What it does", full: true, rows: 2 },
-          ]}
-        />
-        <ListEditor
-          title="Staff, and the block each one appears in"
-          items={data.staff}
-          blank={{ name: "", role: "", dept: "Executive Committee", joined: "", note: "", internal: "" }}
-          onChange={(v) => set("staff", v)}
-          fields={[
-            { k: "name", label: "In-game name" },
-            { k: "role", label: "Title" },
-            {
-              k: "dept",
-              label: "Appears in",
-              full: true,
-              hint:
-                "A block on the people chart: " +
-                (data.divisions || []).map((d) => d.name).filter(Boolean).join(" · ") +
-                ". Separate with commas to appear in more than one.",
-            },
-            { k: "joined", label: "Joined" },
-            { k: "note", label: "Public note", full: true, rows: 2 },
-            { k: "internal", label: "Internal note (staff only)", full: true, rows: 2 },
-          ]}
-        />
-        <ListEditor
-          title="Projects"
-          items={data.projects}
-          blank={{ name: "", status: "Drafting", visibility: "public", progress: 0, target: "", summary: "" }}
-          onChange={(v) => set("projects", v)}
-          fields={[
-            { k: "name", label: "Name" },
-            { k: "status", label: "Status", options: ["Drafting", "Negotiating", "Building", "In review", "Done", "Shelved"] },
-            { k: "visibility", label: "Who can see it", options: ["public", "client", "staff"] },
-            { k: "progress", label: "Progress %", type: "number" },
-            { k: "target", label: "Target" },
-            { k: "summary", label: "Summary", full: true, rows: 2 },
-          ]}
-        />
-        <ListEditor
-          title="Rate card"
-          items={data.services}
-          blank={{ name: "", price: "", detail: "" }}
-          onChange={(v) => set("services", v)}
-          fields={[
-            { k: "name", label: "Service" },
-            { k: "price", label: "Price" },
-            { k: "detail", label: "Detail", full: true, rows: 2 },
-          ]}
-        />
-        <ListEditor
-          title="Monthly figures"
-          items={data.financials.periods}
-          blank={{ label: "", revenue: 0, expenses: 0 }}
-          onChange={(v) => set("financials.periods", v)}
-          fields={[
-            { k: "label", label: "Period" },
-            { k: "revenue", label: "Revenue", type: "number" },
-            { k: "expenses", label: "Expenses", type: "number" },
-          ]}
-        />
-        <Panel style={{ padding: 20, marginBottom: 32 }}>
-          <Eyebrow>Balance sheet</Eyebrow>
-          <div className="grid md:grid-cols-2 gap-x-5 mt-4">
-            <Field label="Cash" type="number" value={data.financials.balance.cash} onChange={(v) => set("financials.balance.cash", v)} />
-            <Field label="Inventory" type="number" value={data.financials.balance.inventory} onChange={(v) => set("financials.balance.inventory", v)} />
-            <Field label="Property" type="number" value={data.financials.balance.property} onChange={(v) => set("financials.balance.property", v)} />
-            <Field label="Investments" type="number" value={data.financials.balance.investments} onChange={(v) => set("financials.balance.investments", v)} />
-            <Field label="Liabilities" type="number" value={data.financials.balance.liabilities} onChange={(v) => set("financials.balance.liabilities", v)} />
-          </div>
-          <Field label="Note under the figures" rows={2} value={data.financials.note} onChange={(v) => set("financials.note", v)} />
-        </Panel>
-        <ListEditor
-          title="Requests from clients"
-          items={data.requests}
-          blank={{ ts: "", from: "", contact: "", type: "", detail: "", status: "New" }}
-          onChange={(v) => set("requests", v)}
-          fields={[
-            { k: "from", label: "From" },
-            { k: "status", label: "Status", options: ["New", "Quoted", "Agreed", "Delivered", "Declined"] },
-            { k: "detail", label: "Detail", full: true, rows: 2 },
-          ]}
-        />
-        <ListEditor
-          title="Transaction log"
-          items={data.transactions || []}
-          blank={{ ts: "", username: "", type: "", counterparty: "", amount: "", materials: "", detail: "" }}
-          onChange={(v) => set("transactions", v)}
-          fields={[
-            { k: "type", label: "Service rendered" },
-            { k: "counterparty", label: "With" },
-            { k: "amount", label: "Amount" },
-            { k: "materials", label: "Material count" },
-            { k: "detail", label: "Detail", full: true, rows: 2 },
-          ]}
-        />
-        <ListEditor
-          title="Applications"
-          items={data.applications || []}
-          blank={{ ts: "", username: "", discord: "", role: "", wage: "", experience: "", references: "", notes: "", status: "New" }}
-          onChange={(v) => set("applications", v)}
-          fields={[
-            { k: "username", label: "In-game name" },
-            { k: "status", label: "Status", options: ["New", "Interviewing", "Hired", "Declined"] },
-            { k: "role", label: "Desired role" },
-            { k: "wage", label: "Desired wage" },
-            { k: "notes", label: "Notes", full: true, rows: 2 },
-          ]}
-        />
-        <ListEditor
-          title="Job list offered on the application form"
-          items={data.jobs || []}
-          blank={{ name: "", category: "Trade" }}
-          onChange={(v) => set("jobs", v)}
-          fields={[
-            { k: "name", label: "Job" },
-            { k: "category", label: "Category", options: ["Trade", "Profession", "Government", "Licence", "Legal licence"] },
-          ]}
-        />
-        <ListEditor
-          title="Shift log"
-          items={data.shifts || []}
-          blank={{ ts: "", username: "", occupation: "", timeIn: "", timeOut: "", output: "" }}
-          onChange={(v) => set("shifts", v)}
-          fields={[
-            { k: "username", label: "In-game name" },
-            { k: "occupation", label: "Occupation" },
-            { k: "timeIn", label: "Time in" },
-            { k: "timeOut", label: "Time out" },
-            { k: "output", label: "Resources gathered / services rendered", full: true, rows: 2 },
-          ]}
-        />
-      </section>
-
-      <section>
         <SectionHead
-          index="VI"
-          title="Accounts"
-          note="Everyone who can sign in. Remove an account the day someone leaves the company — that is the only thing that actually revokes their access."
+          index="IV"
+          title="The rest of the record"
+          note="Each of these opens on its own so you are not scrolling past ten editors to reach the one you want. Everything on them saves the moment you type it."
         />
-        <Accounts session={session} />
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {PAGES.map((p) => (
+            <Panel key={p.key} raised style={{ padding: 0 }}>
+              <button
+                type="button"
+                onClick={() => setPage(p.key)}
+                className="ucc-hub"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: 18,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  className="block"
+                  style={{ fontFamily: F.display, fontSize: 21, color: C.ink, lineHeight: 1.15 }}
+                >
+                  {p.label}
+                </span>
+                <span
+                  className="block mt-1"
+                  style={{ fontFamily: F.body, fontSize: 13, color: C.inkSoft, lineHeight: 1.5 }}
+                >
+                  {p.blurb}
+                </span>
+                {typeof p.count === "number" && (
+                  <span
+                    className="block mt-3"
+                    style={{ fontFamily: F.mono, fontSize: 11, color: C.gold, letterSpacing: "0.1em" }}
+                  >
+                    {p.count} {p.count === 1 ? "entry" : "entries"}
+                  </span>
+                )}
+              </button>
+            </Panel>
+          ))}
+        </div>
       </section>
     </div>
   );
 }
+
 
 /* ----------------------------- sign in ----------------------------- */
 
