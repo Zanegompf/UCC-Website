@@ -26,6 +26,35 @@ async function requireExec() {
   return session;
 }
 
+/** Anyone who can run the company: an executive or the chief executive. */
+const runsTheCompany = (u) => levelOf(u?.role) >= LEVEL.exec;
+
+async function callerLevel(session) {
+  const data = await ensureData();
+  return levelOf(effectiveRole(data, session));
+}
+
+/**
+ * Whether this caller may hand out or take away the chief executive's seat.
+ *
+ * Only a chief executive can, with one exception: when the company has none,
+ * an executive appoints the first. Without that a record that predates the
+ * role could never gain one, since there would be nobody entitled to grant it.
+ */
+function refuseCeoChange({ level, users, targetRole, nextRole }) {
+  const touchesCeo = targetRole === "ceo" || nextRole === "ceo";
+  if (!touchesCeo) return null;
+  if (level >= LEVEL.ceo) return null;
+
+  const seated = (users || []).some((u) => u.role === "ceo");
+  if (nextRole === "ceo" && targetRole !== "ceo" && !seated) return null;
+
+  return json(
+    { error: "Only the chief executive can change who holds that seat." },
+    403
+  );
+}
+
 export async function GET() {
   if (!(await requireExec()))
     return NextResponse.json({ error: "Executives only." }, { status: 403 });
@@ -73,6 +102,16 @@ export async function POST(req) {
     );
   }
 
+  // Replacing an account wholesale is also a way to hand out the chief
+  // executive's seat, so the same rule applies here.
+  const ceoRefusal = refuseCeoChange({
+    level: await callerLevel(session),
+    users,
+    targetRole: existing?.role,
+    nextRole: role,
+  });
+  if (ceoRefusal) return ceoRefusal;
+
   const record = {
     username: name,
     role,
@@ -85,7 +124,7 @@ export async function POST(req) {
     ? users.map((u) => (u.username === name ? record : u))
     : [...users, record];
 
-  if (!updated.some((u) => u.role === "exec")) {
+  if (!updated.some(runsTheCompany)) {
     return json({ error: "The company needs at least one executive account." }, 400);
   }
 
@@ -123,13 +162,22 @@ export async function PATCH(req) {
 
   const data = await ensureData();
   const users = data.users || [];
-  if (!users.some((u) => u.username === name)) {
+  const target = users.find((u) => u.username === name);
+  if (!target) {
     return NextResponse.json({ error: "No such account." }, { status: 404 });
   }
 
+  const refusal = refuseCeoChange({
+    level: await callerLevel(session),
+    users,
+    targetRole: target.role,
+    nextRole: role,
+  });
+  if (refusal) return refusal;
+
   const updated = users.map((u) => (u.username === name ? { ...u, role } : u));
 
-  if (!updated.some((u) => u.role === "exec")) {
+  if (!updated.some(runsTheCompany)) {
     return NextResponse.json(
       { error: "The company needs at least one executive account." },
       { status: 400 }
@@ -161,8 +209,21 @@ export async function DELETE(req) {
   }
 
   const data = await ensureData();
-  const remaining = (data.users || []).filter((u) => u.username !== name);
-  if (!remaining.some((u) => u.role === "exec")) {
+  const users = data.users || [];
+  const target = users.find((u) => u.username === name);
+
+  if (target) {
+    const refusal = refuseCeoChange({
+      level: await callerLevel(session),
+      users,
+      targetRole: target.role,
+      nextRole: null,
+    });
+    if (refusal) return refusal;
+  }
+
+  const remaining = users.filter((u) => u.username !== name);
+  if (!remaining.some(runsTheCompany)) {
     return NextResponse.json(
       { error: "The company needs at least one executive account." },
       { status: 400 }

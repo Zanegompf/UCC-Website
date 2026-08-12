@@ -60,19 +60,21 @@ const F = {
 };
 
 
-const LEVEL = { public: 0, member: 0, client: 1, staff: 2, exec: 3 };
+const LEVEL = { public: 0, member: 0, client: 1, staff: 2, exec: 3, ceo: 4 };
 const ROLE_NAME = {
   public: "Visitor",
   member: "Member",
   client: "Client",
   staff: "Staff",
   exec: "Executive",
+  ceo: "Chief Executive",
 };
 const ROLE_BLURB = {
   member: "You have an account, but no company access yet. An executive can raise it.",
   client: "You can see the rate card, client projects and the request desk.",
   staff: "You can see the balance sheet, internal notes and incoming requests.",
   exec: "You can edit the company record and manage accounts.",
+  ceo: "Everything an executive can do, plus rearranging the company chart from the people page.",
 };
 
 const ROLE_TABS = [
@@ -80,6 +82,7 @@ const ROLE_TABS = [
   { key: "client", label: "Client", hint: "Rate card, client projects, request desk" },
   { key: "staff", label: "Staff", hint: "Balance sheet, internal notes, requests" },
   { key: "exec", label: "Exec", hint: "Full control of the company record" },
+  { key: "ceo", label: "CEO", hint: "Exec, plus editing the chart in place" },
 ];
 
 // Mirrors HOOK_EVENTS in lib/discord.js. Kept as its own copy so the server's
@@ -802,6 +805,99 @@ function ListEditor({ title, items, fields, blank, onChange }) {
 
 /* ------------------------------- org chart ------------------------------ */
 
+/**
+ * Text that becomes a field when the chart is unlocked.
+ *
+ * The input inherits its type from whatever wraps it, so a heading stays a
+ * heading while it is being edited rather than jumping to a form font.
+ *
+ * It commits on blur, not on every keystroke. The control room saves as you
+ * type, but each save here is a PUT of the whole company record, and a
+ * paragraph is a lot of them.
+ */
+function Editable({ value, onCommit, editing, rows, placeholder }) {
+  const [draft, setDraft] = useState(value ?? "");
+
+  useEffect(() => {
+    setDraft(value ?? "");
+  }, [value]);
+
+  if (!editing) return <>{value}</>;
+
+  const shared = {
+    font: "inherit",
+    color: "inherit",
+    letterSpacing: "inherit",
+    lineHeight: "inherit",
+    width: "100%",
+    display: "block",
+    background: "rgba(192,145,58,0.12)",
+    border: "none",
+    borderBottom: `1px dashed ${C.gold}`,
+    padding: "1px 3px",
+    outline: "none",
+    resize: rows ? "vertical" : "none",
+  };
+
+  const commit = () => {
+    if ((value ?? "") !== draft) onCommit(draft);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") {
+      setDraft(value ?? "");
+      e.currentTarget.blur();
+    }
+    if (e.key === "Enter" && !rows) e.currentTarget.blur();
+  };
+
+  return rows ? (
+    <textarea
+      rows={rows}
+      value={draft}
+      placeholder={placeholder}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={onKeyDown}
+      style={shared}
+    />
+  ) : (
+    <input
+      value={draft}
+      placeholder={placeholder}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={onKeyDown}
+      style={shared}
+    />
+  );
+}
+
+/** A small square button for the chart's own controls. */
+function OrgAction({ children, onClick, title, tone }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="ucc-btn"
+      style={{
+        fontFamily: F.mono,
+        fontSize: 11,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        padding: "5px 9px",
+        cursor: "pointer",
+        background: "transparent",
+        color: tone === "seal" ? C.seal : C.inkSoft,
+        border: `1px dashed ${tone === "seal" ? C.seal : C.rule}`,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 // Must match the gap on .ucc-org-row and .ucc-org-branch in globals.css —
 // the connecting rules are positioned against it.
 const ORG_GAP = 20;
@@ -870,8 +966,10 @@ function OrgGoverningCard({ d }) {
  * person can sit in more than one — the chief executive chairs the board and
  * sits on the committee, and should show in both.
  */
-function OrgMembers({ members, level }) {
-  if (!members.length) {
+function OrgMembers({ members, level, edit }) {
+  const editing = Boolean(edit);
+
+  if (!members.length && !editing) {
     return (
       <p
         className="mt-3"
@@ -891,24 +989,55 @@ function OrgMembers({ members, level }) {
             className="shrink-0"
             style={{ width: 4, height: 4, background: C.gold, marginTop: 8 }}
           />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink, lineHeight: 1.45 }}>
-              {m.role}
-              {m.name && (
+              {editing ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span style={{ flex: "1 1 150px", minWidth: 0 }}>
+                    <Editable
+                      editing
+                      value={m.role}
+                      placeholder="Title"
+                      onCommit={(v) => edit.setPerson(m, { role: v })}
+                    />
+                  </span>
+                  <span style={{ flex: "1 1 110px", minWidth: 0, fontFamily: F.mono, fontSize: 12.5 }}>
+                    <Editable
+                      editing
+                      value={m.name}
+                      placeholder="In-game name"
+                      onCommit={(v) => edit.setPerson(m, { name: v })}
+                    />
+                  </span>
+                  <OrgAction tone="seal" onClick={() => edit.removePerson(m)} title="Remove this person">
+                    ×
+                  </OrgAction>
+                </div>
+              ) : (
                 <>
-                  {" — "}
-                  <span style={{ fontFamily: F.mono, fontSize: 12.5 }}>{m.name}</span>
+                  {m.role}
+                  {m.name && (
+                    <>
+                      {" — "}
+                      <span style={{ fontFamily: F.mono, fontSize: 12.5 }}>{m.name}</span>
+                    </>
+                  )}
                 </>
               )}
             </div>
-            {m.note && (
+            {(m.note || editing) && (
               <div
                 style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.5 }}
               >
-                {m.note}
+                <Editable
+                  editing={editing}
+                  value={m.note}
+                  placeholder="What they do here"
+                  onCommit={(v) => edit.setPerson(m, { note: v })}
+                />
               </div>
             )}
-            {level >= LEVEL.staff && m.internal && (
+            {level >= LEVEL.staff && m.internal && !editing && (
               <div
                 style={{ fontFamily: F.body, fontSize: 12.5, color: C.seal, lineHeight: 1.5 }}
               >
@@ -923,14 +1052,16 @@ function OrgMembers({ members, level }) {
 }
 
 /** The same blocks as the overview chart, but holding people. */
-function OrgPeopleCard({ d, members, governing, level }) {
+function OrgPeopleCard({ d, members, governing, level, edit, hasChildren }) {
+  const editing = Boolean(edit);
+
   return (
     <Panel
       tone={governing ? "deep" : undefined}
-      raised={!governing}
+      raised={!governing && !editing}
       style={{ padding: 20, height: "100%", display: "flex", flexDirection: "column" }}
     >
-      {d.code ? (
+      {d.code || editing ? (
         <div
           className="inline-block mb-4 self-start"
           style={{
@@ -941,9 +1072,15 @@ function OrgPeopleCard({ d, members, governing, level }) {
             fontSize: 11,
             letterSpacing: "0.1em",
             whiteSpace: "nowrap",
+            minWidth: editing ? 84 : undefined,
           }}
         >
-          {d.code}
+          <Editable
+            editing={editing}
+            value={d.code}
+            placeholder="Code"
+            onCommit={(v) => edit.setDivision(d.name, { code: v })}
+          />
         </div>
       ) : (
         <div className="mb-3">
@@ -959,17 +1096,51 @@ function OrgPeopleCard({ d, members, governing, level }) {
           letterSpacing: "-0.01em",
         }}
       >
-        {d.name}
+        <Editable
+          editing={editing}
+          value={d.name}
+          placeholder="Name"
+          onCommit={(v) => edit.renameDivision(d.name, v)}
+        />
       </h3>
-      {d.blurb && (
+      {(d.blurb || editing) && (
         <p
           className="mt-2"
           style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
         >
-          {d.blurb}
+          <Editable
+            editing={editing}
+            rows={editing ? 3 : undefined}
+            value={d.blurb}
+            placeholder="What this block is for"
+            onCommit={(v) => edit.setDivision(d.name, { blurb: v })}
+          />
         </p>
       )}
-      <OrgMembers members={members} level={level} />
+
+      <OrgMembers members={members} level={level} edit={edit} />
+
+      {editing && (
+        <div
+          className="mt-4 pt-3 flex flex-wrap gap-2"
+          style={{ borderTop: `1px dashed ${C.rule}` }}
+        >
+          <OrgAction onClick={() => edit.addPerson(d.name)} title="Add a person to this block">
+            + Person
+          </OrgAction>
+          <OrgAction onClick={() => edit.addDivision(d.name)} title="Add a block under this one">
+            + Division
+          </OrgAction>
+          {/* Removing a block with children would strand them, and the record
+              is the only copy — so this only offers when nothing hangs off it
+              and nobody is listed in it. */}
+          {!hasChildren && members.length === 0 && (
+            <OrgAction tone="seal" onClick={() => edit.removeDivision(d.name)} title="Remove this block">
+              Remove
+            </OrgAction>
+          )}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -1090,7 +1261,7 @@ function OrgBranch({ n }) {
  * one narrow centred column so the board, the committee and the department
  * line up rather than stretching across the page.
  */
-function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level }) {
+function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit }) {
   // An executive can type any name into `parent`, so a cycle is reachable from
   // the control room. Stop rather than recurse forever.
   if (seen.has(node.name)) return null;
@@ -1104,7 +1275,7 @@ function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level }) {
   const spineWidth = people ? 560 : 420;
   const stem = people ? 26 : governing ? 16 : 26;
 
-  const pass = { childrenOf, people, membersOf, level };
+  const pass = { childrenOf, people, membersOf, level, edit };
 
   return (
     <div>
@@ -1114,6 +1285,8 @@ function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level }) {
             d={node}
             governing={governing}
             level={level}
+            edit={edit}
+            hasChildren={kids.length > 0}
             members={membersOf.get(node.name) || []}
           />
         ) : (
@@ -1181,7 +1354,113 @@ function groupStaffByNode(divisions, staff) {
   return { membersOf, unplaced };
 }
 
-function OrgChart({ divisions, people, membersOf, level }) {
+/**
+ * The edits the chart can make to the record, given `save`.
+ *
+ * Renaming is the awkward one: a block's name is what its children point at
+ * through `parent`, and what staff point at through `dept`. Renaming without
+ * carrying those across would orphan the branch below it and empty the block
+ * of people, so all three move together.
+ */
+function chartEditor(data, save) {
+  const clone = () => deepClone(data);
+
+  const uniqueName = (list, base) => {
+    let name = base;
+    let n = 2;
+    while (list.some((d) => d.name === name)) name = `${base} ${n++}`;
+    return name;
+  };
+
+  const remapDept = (dept, from, to) =>
+    String(dept || "")
+      .split(",")
+      .map((s) => (s.trim().toLowerCase() === from.toLowerCase() ? to : s.trim()))
+      .filter(Boolean)
+      .join(", ");
+
+  return {
+    setDivision(name, patch) {
+      const next = clone();
+      const i = (next.divisions || []).findIndex((d) => d.name === name);
+      if (i < 0) return;
+      next.divisions[i] = { ...next.divisions[i], ...patch };
+      save(next);
+    },
+
+    renameDivision(from, to) {
+      const clean = String(to).trim();
+      const next = clone();
+      const list = next.divisions || [];
+      if (!clean || clean === from) return;
+      // Two blocks with one name would make `parent` ambiguous.
+      if (list.some((d) => d.name === clean)) return;
+
+      next.divisions = list.map((d) => ({
+        ...d,
+        name: d.name === from ? clean : d.name,
+        parent: d.parent === from ? clean : d.parent,
+      }));
+      next.staff = (next.staff || []).map((s) => ({
+        ...s,
+        dept: remapDept(s.dept, from, clean),
+      }));
+      save(next);
+    },
+
+    addDivision(parentName) {
+      const next = clone();
+      const list = next.divisions || [];
+      next.divisions = [
+        ...list,
+        {
+          name: uniqueName(list, "New division"),
+          code: "",
+          parent: parentName,
+          lead: "",
+          blurb: "",
+        },
+      ];
+      save(next);
+    },
+
+    removeDivision(name) {
+      const next = clone();
+      next.divisions = (next.divisions || []).filter((d) => d.name !== name);
+      save(next);
+    },
+
+    addPerson(deptName) {
+      const next = clone();
+      next.staff = [
+        ...(next.staff || []),
+        { name: "", role: "New role", dept: deptName, joined: "", note: "", internal: "" },
+      ];
+      save(next);
+    },
+
+    // A block's members are the very objects from `data.staff`, so identity
+    // finds the right row even when two people share a name. The index has to
+    // be taken from the original — cloning first would leave nothing to match.
+    setPerson(person, patch) {
+      const at = (data.staff || []).indexOf(person);
+      if (at < 0) return;
+      const next = clone();
+      next.staff[at] = { ...next.staff[at], ...patch };
+      save(next);
+    },
+
+    removePerson(person) {
+      const at = (data.staff || []).indexOf(person);
+      if (at < 0) return;
+      const next = clone();
+      next.staff.splice(at, 1);
+      save(next);
+    },
+  };
+}
+
+function OrgChart({ divisions, people, membersOf, level, edit }) {
   const { roots, childrenOf } = useMemo(() => {
     const list = (divisions || []).filter((d) => d?.name);
     const names = new Set(list.map((d) => d.name));
@@ -1222,6 +1501,7 @@ function OrgChart({ divisions, people, membersOf, level }) {
           people={people}
           membersOf={membersOf || new Map()}
           level={level}
+          edit={edit}
         />
       ))}
     </div>
@@ -1888,29 +2168,63 @@ function LedgerRow({ label, value, bold }) {
   );
 }
 
-function People({ data, level }) {
+function People({ data, level, save }) {
+  const [unlocked, setUnlocked] = useState(false);
+
   const { membersOf, unplaced } = useMemo(
     () => groupStaffByNode(data.divisions, data.staff),
     [data.divisions, data.staff]
   );
 
+  // The chart is only editable in place by the chief executive. Everyone else,
+  // executives included, edits the record in the control room.
+  const mayEdit = level >= LEVEL.ceo;
+  const editing = mayEdit && unlocked;
+  const edit = useMemo(
+    () => (editing && save ? chartEditor(data, save) : null),
+    [editing, save, data]
+  );
+
   return (
     <div className="space-y-10">
       <section>
-        <SectionHead
-          index="I"
-          title="Who sits where"
-          note={
-            level >= LEVEL.staff
-              ? "The same structure as the overview, with the people in it. Internal notes are visible to you — keep them internal."
-              : "The same structure as the overview, with the people in it."
-          }
-        />
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <SectionHead
+              index="I"
+              title="Who sits where"
+              note={
+                editing
+                  ? "Unlocked. Click any name, title or description to change it; changes save when you click away."
+                  : level >= LEVEL.staff
+                  ? "The same structure as the overview, with the people in it. Internal notes are visible to you — keep them internal."
+                  : "The same structure as the overview, with the people in it."
+              }
+            />
+          </div>
+          {mayEdit && (
+            <div className="shrink-0 pt-1">
+              <Btn
+                variant={editing ? "gold" : "ghost"}
+                onClick={() => setUnlocked((v) => !v)}
+                title={editing ? "Lock the chart" : "Unlock the chart for editing"}
+              >
+                <span aria-hidden="true" style={{ fontSize: 14 }}>
+                  🔨
+                </span>
+                <span className="sr-only">
+                  {editing ? "Lock the chart" : "Unlock the chart"}
+                </span>
+              </Btn>
+            </div>
+          )}
+        </div>
         <OrgChart
           divisions={data.divisions}
           people
           membersOf={membersOf}
           level={level}
+          edit={edit}
         />
       </section>
 
@@ -4208,7 +4522,7 @@ export default function App() {
         )}
         {tab === "Share" && <ShareSection data={data} level={level} />}
         {tab === "Financials" && <Financials data={data} level={level} />}
-        {tab === "People" && <People data={data} level={level} />}
+        {tab === "People" && <People data={data} level={level} save={save} />}
         {tab === "Projects" && <Projects data={data} level={level} />}
         {tab === "Client desk" && (
           <ClientDesk data={data} level={level} onSubmitRequest={submitRequest} />

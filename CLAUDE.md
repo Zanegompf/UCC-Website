@@ -127,7 +127,22 @@ if the site ever moves off Vercel.
 
 ## Roles
 
-`public: 0, member: 0, client: 1, staff: 2, exec: 3`
+`public: 0, member: 0, client: 1, staff: 2, exec: 3, ceo: 4`
+
+`ceo` sees exactly what an executive sees — every `filterData` gate is
+`>= LEVEL.exec`, which it clears — and adds one thing: unlocking the people
+chart to edit it in place.
+
+**Only a chief executive may seat or unseat another**, on PATCH, DELETE and the
+wholesale POST. The one exception is bootstrapping: where the company has no
+`ceo`, an executive may appoint the first, or a record predating the role could
+never gain one. `ensureData()` also seats `OWNER_ACCOUNT` (`beast_sd`) whenever
+that account exists and no seat is taken — it runs every load rather than once,
+because the account may be created after this shipped.
+
+The "last executive" guard counts anyone at `exec` **or above**, so a company
+whose only privileged account is the chief executive is not treated as locked
+out of itself.
 
 `member` is a signed-in account with visitor-level sight. Self-registration
 creates one. This is the safe default: making an account should not hand a
@@ -247,6 +262,28 @@ someone from the page would be worse than an untidy section.
 `ensureData()` rewrites the old `dept: "Executive"` to `"Executive Committee"`,
 and replaces the committee's blurb **only where it is still the old seeded
 wording** — an executive who rewrote it keeps theirs.
+
+### Editing the chart in place
+
+The hammer on the People tab unlocks it, and shows only at `ceo`. `Editable`
+swaps text for an input that inherits its type, so a heading stays a heading
+while it is being changed. It commits **on blur, not per keystroke**: unlike the
+control room, every save here is a PUT of the whole record and a paragraph would
+be a hundred of them. Escape reverts, Enter commits a single-line field.
+
+`chartEditor()` holds the mutations. **Renaming is the one with teeth**: a
+block's name is what its children point at through `parent` and what staff point
+at through `dept`, so all three move together — rename without the cascade and
+the branch below is orphaned and the block empties of people. A rename to an
+existing name is refused, since two blocks sharing one would make `parent`
+ambiguous.
+
+`setPerson`/`removePerson` locate the row by **identity against the original
+`data.staff`**, which is why the index is taken before `deepClone` — cloning
+first leaves nothing to match, and two people may share a name.
+
+`Remove` on a block only appears when nothing hangs off it and nobody is in it.
+The record is the only copy, and a stray click should not take a branch with it.
 
 ## The shift log
 
