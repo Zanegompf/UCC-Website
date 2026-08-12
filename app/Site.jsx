@@ -969,6 +969,12 @@ function OrgGoverningCard({ d }) {
 function OrgMembers({ members, level, edit }) {
   const editing = Boolean(edit);
 
+  // The row whose remove has been armed, held by identity rather than index so
+  // it cannot end up pointing at somebody else if the list shifts underneath.
+  // Taking a person off the chart is the one edit here that retyping cannot
+  // undo, so it asks twice.
+  const [armed, setArmed] = useState(null);
+
   if (!members.length && !editing) {
     return (
       <p
@@ -1009,9 +1015,36 @@ function OrgMembers({ members, level, edit }) {
                       onCommit={(v) => edit.setPerson(m, { name: v })}
                     />
                   </span>
-                  <OrgAction tone="seal" onClick={() => edit.removePerson(m)} title="Remove this person">
-                    ×
-                  </OrgAction>
+                  {armed === m ? (
+                    <span className="flex items-center gap-2">
+                      <span
+                        style={{ fontFamily: F.mono, fontSize: 10.5, color: C.seal }}
+                      >
+                        Remove?
+                      </span>
+                      <OrgAction
+                        tone="seal"
+                        onClick={() => {
+                          setArmed(null);
+                          edit.removePerson(m);
+                        }}
+                        title="Yes, take this person off the chart"
+                      >
+                        Yes
+                      </OrgAction>
+                      <OrgAction onClick={() => setArmed(null)} title="Keep this person">
+                        Keep
+                      </OrgAction>
+                    </span>
+                  ) : (
+                    <OrgAction
+                      tone="seal"
+                      onClick={() => setArmed(m)}
+                      title="Remove this person"
+                    >
+                      ×
+                    </OrgAction>
+                  )}
                 </div>
               ) : (
                 <>
@@ -1054,6 +1087,7 @@ function OrgMembers({ members, level, edit }) {
 /** The same blocks as the overview chart, but holding people. */
 function OrgPeopleCard({ d, members, governing, level, edit, hasChildren }) {
   const editing = Boolean(edit);
+  const [armedRemove, setArmedRemove] = useState(false);
 
   return (
     <Panel
@@ -1134,11 +1168,36 @@ function OrgPeopleCard({ d, members, governing, level, edit, hasChildren }) {
           {/* Removing a block with children would strand them, and the record
               is the only copy — so this only offers when nothing hangs off it
               and nobody is listed in it. */}
-          {!hasChildren && members.length === 0 && (
-            <OrgAction tone="seal" onClick={() => edit.removeDivision(d.name)} title="Remove this block">
-              Remove
-            </OrgAction>
-          )}
+          {!hasChildren &&
+            members.length === 0 &&
+            (armedRemove ? (
+              <span className="flex items-center gap-2">
+                <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.seal }}>
+                  Remove this block?
+                </span>
+                <OrgAction
+                  tone="seal"
+                  onClick={() => {
+                    setArmedRemove(false);
+                    edit.removeDivision(d.name);
+                  }}
+                  title="Yes, remove it"
+                >
+                  Yes
+                </OrgAction>
+                <OrgAction onClick={() => setArmedRemove(false)} title="Keep it">
+                  Keep
+                </OrgAction>
+              </span>
+            ) : (
+              <OrgAction
+                tone="seal"
+                onClick={() => setArmedRemove(true)}
+                title="Remove this block"
+              >
+                Remove
+              </OrgAction>
+            ))}
         </div>
       )}
     </Panel>

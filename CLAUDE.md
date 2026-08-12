@@ -285,6 +285,13 @@ first leaves nothing to match, and two people may share a name.
 `Remove` on a block only appears when nothing hangs off it and nobody is in it.
 The record is the only copy, and a stray click should not take a branch with it.
 
+Both removals **arm first**: one click turns the control into `Remove? Yes /
+Keep`, and only Yes commits. Every other edit here can be undone by retyping;
+these two cannot. The armed person is held **by identity, not index**, so it
+cannot end up pointing at somebody else if the list shifts. Do not reach for
+`window.confirm` — a native dialog blocks the page, and it is the wrong register
+for this site.
+
 ## The shift log
 
 **A shift is one row, not two.** `POST /api/shifts` takes `action: "in" | "out"`.
