@@ -733,7 +733,12 @@ function Hero({ data }) {
 
 /* ----------------------------- list editor ----------------------------- */
 
-function ListEditor({ title, items, fields, blank, onChange }) {
+/**
+ * `footer` renders under a row's fields, for anything that is not a plain
+ * value on the record — the account behind an application, for instance,
+ * which lives on the account list rather than in this item at all.
+ */
+function ListEditor({ title, items, fields, blank, onChange, footer }) {
   const update = (i, k, v) => {
     const next = deepClone(items);
     next[i][k] = v;
@@ -782,6 +787,7 @@ function ListEditor({ title, items, fields, blank, onChange }) {
                 </div>
               ))}
             </div>
+            {footer && footer(it, i)}
             <div className="flex gap-2 justify-end">
               <Btn onClick={() => move(i, -1)}>Up</Btn>
               <Btn onClick={() => move(i, 1)}>Down</Btn>
@@ -2765,6 +2771,50 @@ function TransactionModal({ onClose, onSubmit, session, data }) {
 }
 
 /**
+ * The account list, and the one thing both application views do with it.
+ *
+ * Accounts never travel with the company record, so anywhere that wants to
+ * show or change somebody's access has to ask for them separately. Shared so
+ * the hiring board and the control room behave identically rather than each
+ * growing their own copy.
+ */
+function useAccounts(enabled) {
+  const [users, setUsers] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    api("/api/users")
+      .then((r) => live && setUsers(r.users))
+      .catch(() => live && setUsers([]));
+    return () => {
+      live = false;
+    };
+  }, [enabled]);
+
+  const setRole = useCallback(async (username, role) => {
+    setBusy(username);
+    setMsg("");
+    try {
+      const r = await api("/api/users", {
+        method: "PATCH",
+        body: JSON.stringify({ username, role }),
+      });
+      setUsers(r.users);
+      setMsg(`${username} is now ${ROLE_NAME[role] || role}.`);
+    } catch (e) {
+      setMsg(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  return { users, msg, busy, setRole };
+}
+
+/**
  * The account an application was filed from, and its access.
  *
  * This is the account, not the in-game name typed on the form — the two need
@@ -2844,40 +2894,13 @@ function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction })
   const [showTransaction, setShowTransaction] = useState(false);
   const [logged, setLogged] = useState("");
 
-  // Accounts never travel with the company record, so the hiring board has to
-  // ask for them separately to know what access an applicant already holds.
-  // Executives only, which is also who the board itself is for.
-  const [users, setUsers] = useState(null);
-  const [accountMsg, setAccountMsg] = useState("");
-  const [busyAccount, setBusyAccount] = useState(null);
-
-  useEffect(() => {
-    if (level < LEVEL.exec) return;
-    let live = true;
-    api("/api/users")
-      .then((r) => live && setUsers(r.users))
-      .catch(() => live && setUsers([]));
-    return () => {
-      live = false;
-    };
-  }, [level]);
-
-  const setApplicantRole = async (username, role) => {
-    setBusyAccount(username);
-    setAccountMsg("");
-    try {
-      const r = await api("/api/users", {
-        method: "PATCH",
-        body: JSON.stringify({ username, role }),
-      });
-      setUsers(r.users);
-      setAccountMsg(`${username} is now ${ROLE_NAME[role] || role}.`);
-    } catch (e) {
-      setAccountMsg(e.message);
-    } finally {
-      setBusyAccount(null);
-    }
-  };
+  // The hiring board is executive-only, which is also who may read accounts.
+  const {
+    users,
+    msg: accountMsg,
+    busy: busyAccount,
+    setRole: setApplicantRole,
+  } = useAccounts(level >= LEVEL.exec);
 
   if (level < LEVEL.staff) {
     return (
@@ -3549,6 +3572,8 @@ function ControlRoom({ data, save, level, session }) {
   // is not worth a history entry.
   const [page, setPage] = useState(null);
   const [pricePoint, setPricePoint] = useState({ label: "", price: "" });
+  // For the applications page, which shows the account behind each one.
+  const accounts = useAccounts(level >= LEVEL.exec);
   const [post, setPost] = useState({ title: "", body: "", audience: "public", author: "Executive", toDiscord: true });
   const [discordState, setDiscordState] = useState("");
 
@@ -3852,19 +3877,35 @@ function ControlRoom({ data, save, level, session }) {
       blurb: "People who have applied to work here, and where each one stands.",
       count: (data.applications || []).length,
       body: (
-        <ListEditor
-          title="Applications"
-          items={data.applications || []}
-          blank={{ ts: "", username: "", discord: "", role: "", wage: "", experience: "", references: "", notes: "", status: "New" }}
-          onChange={(v) => set("applications", v)}
-          fields={[
-            { k: "username", label: "In-game name" },
-            { k: "status", label: "Status", options: ["New", "Interviewing", "Hired", "Declined"] },
-            { k: "role", label: "Desired role" },
-            { k: "wage", label: "Desired wage" },
-            { k: "notes", label: "Notes", full: true, rows: 2 },
-          ]}
-        />
+        <>
+          <ListEditor
+            title="Applications"
+            items={data.applications || []}
+            blank={{ ts: "", username: "", discord: "", role: "", wage: "", experience: "", references: "", notes: "", status: "New" }}
+            onChange={(v) => set("applications", v)}
+            fields={[
+              { k: "username", label: "In-game name" },
+              { k: "status", label: "Status", options: ["New", "Interviewing", "Hired", "Declined"] },
+              { k: "role", label: "Desired role" },
+              { k: "wage", label: "Desired wage" },
+              { k: "notes", label: "Notes", full: true, rows: 2 },
+            ]}
+            footer={(a) => (
+              <ApplicantAccount
+                account={a.account}
+                users={accounts.users}
+                me={session?.username}
+                busy={accounts.busy}
+                onPick={accounts.setRole}
+              />
+            )}
+          />
+          {accounts.msg && (
+            <p style={{ fontFamily: F.mono, fontSize: 11.5, color: C.inkSoft }}>
+              {accounts.msg}
+            </p>
+          )}
+        </>
       ),
     },
     {

@@ -355,16 +355,25 @@ self-registration is one click from the sign-in button.
 
 Applications do not post to Discord, for the same reason requests do not.
 
-Each application shows the **account it was filed from** underneath the notes,
-with a `RolePicker` beside it, so hiring somebody is done where you read them
-rather than by carrying a name over to the control room. Note the account and
-the in-game name on the form need not match; the account is the one that access
-actually hangs off.
+Applications appear in **two places**, and the account block belongs on both:
+the hiring board in the staff room, and the Applications page in the control
+room. Put anything about an application on both or neither — landing on the one
+without it reads as the feature being missing.
 
-Accounts never travel with the company record, so the board fetches
-`/api/users` separately — which is also why an application whose account has
-since been deleted says so rather than offering a control that would fail. The
-picker is the same component the accounts editor uses, so the two cannot drift.
+Each shows the **account it was filed from** underneath the notes, with a
+`RolePicker` beside it, so hiring somebody is done where you read them rather
+than by carrying a name to another screen. The account and the in-game name on
+the form need not match; the account is what access hangs off.
+
+Accounts never travel with the company record, so `useAccounts()` fetches
+`/api/users` separately — shared by both views so they cannot drift. It is also
+why an application whose account has since been deleted says so instead of
+offering a control that would fail, and why one **typed in by hand** in the
+control room reads "not recorded": `blank` has no `account`, only the form sets
+it.
+
+`ListEditor` takes an optional `footer(item, i)` for exactly this — a row needs
+something that is not a plain value on the record.
 
 Reading them is **exec only**, one level above client requests: an application
 states what somebody expects to be paid, and staff have no reason to see each
