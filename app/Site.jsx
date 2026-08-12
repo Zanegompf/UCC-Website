@@ -169,6 +169,26 @@ const compact = (n) => {
 
 const dec = (n) => (Number(n) || 0).toFixed(2);
 
+/**
+ * Puts AM or PM on a shift time.
+ *
+ * Times are stored as plain text, so this composes rather than adding a field:
+ * "6:00" plus "PM" is stored as "6:00 PM" and everything that reads the log
+ * carries on working, including the entries already in it.
+ *
+ * It declines twice over, because both would produce nonsense: when the time
+ * already says AM or PM, and when it is plainly 24-hour. "18:00 PM" helps
+ * nobody, and 18:00 was never ambiguous to begin with.
+ */
+function withMeridiem(time, meridiem) {
+  const t = String(time || "").trim();
+  if (!t || !meridiem) return t;
+  if (/[ap]\.?m\.?$/i.test(t)) return t;
+  const hour = Number((t.match(/^(\d{1,2})/) || [])[1]);
+  if (hour >= 13) return t;
+  return `${t} ${meridiem}`;
+}
+
 function deepClone(o) {
   return JSON.parse(JSON.stringify(o));
 }
@@ -2496,6 +2516,7 @@ function ClockInModal({ onClose, onSubmit, session, data }) {
     username: session?.username || "",
     occupation: "",
     timeIn: "",
+    meridiem: "PM",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -2515,7 +2536,11 @@ function ClockInModal({ onClose, onSubmit, session, data }) {
     setBusy(true);
     setError("");
     try {
-      await onSubmit({ action: "in", ...form });
+      await onSubmit({
+        action: "in",
+        ...form,
+        timeIn: withMeridiem(form.timeIn, form.meridiem),
+      });
       onClose();
     } catch (e) {
       setError(e.message);
@@ -2551,12 +2576,21 @@ function ClockInModal({ onClose, onSubmit, session, data }) {
           options={["", ...occupations]}
         />
       </div>
-      <Field
-        label="Time in"
-        value={form.timeIn}
-        onChange={(v) => setForm({ ...form, timeIn: v })}
-        placeholder="18:00"
-      />
+      <div className="grid md:grid-cols-2 gap-x-5">
+        <Field
+          label="Time in"
+          value={form.timeIn}
+          onChange={(v) => setForm({ ...form, timeIn: v })}
+          placeholder="6:00"
+        />
+        <Field
+          label="AM or PM"
+          value={form.meridiem}
+          onChange={(v) => setForm({ ...form, meridiem: v })}
+          options={["AM", "PM", ""]}
+          hint="Leave blank if you are writing 24-hour time."
+        />
+      </div>
 
       {error && (
         <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
@@ -2579,7 +2613,7 @@ function ClockInModal({ onClose, onSubmit, session, data }) {
  * than on the way in, because nobody knows it yet when they start.
  */
 function ClockOutModal({ onClose, onSubmit, open }) {
-  const [form, setForm] = useState({ timeOut: "", output: "" });
+  const [form, setForm] = useState({ timeOut: "", output: "", meridiem: "PM" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -2590,7 +2624,11 @@ function ClockOutModal({ onClose, onSubmit, open }) {
     setBusy(true);
     setError("");
     try {
-      await onSubmit({ action: "out", ...form });
+      await onSubmit({
+        action: "out",
+        ...form,
+        timeOut: withMeridiem(form.timeOut, form.meridiem),
+      });
       onClose();
     } catch (e) {
       setError(e.message);
@@ -2629,12 +2667,21 @@ function ClockOutModal({ onClose, onSubmit, open }) {
         </p>
       )}
 
-      <Field
-        label="Time out"
-        value={form.timeOut}
-        onChange={(v) => setForm({ ...form, timeOut: v })}
-        placeholder="21:30"
-      />
+      <div className="grid md:grid-cols-2 gap-x-5">
+        <Field
+          label="Time out"
+          value={form.timeOut}
+          onChange={(v) => setForm({ ...form, timeOut: v })}
+          placeholder="9:30"
+        />
+        <Field
+          label="AM or PM"
+          value={form.meridiem}
+          onChange={(v) => setForm({ ...form, meridiem: v })}
+          options={["AM", "PM", ""]}
+          hint="Leave blank if you are writing 24-hour time."
+        />
+      </div>
       <Field
         label="Resources gathered / services rendered"
         rows={4}

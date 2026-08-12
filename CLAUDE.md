@@ -309,6 +309,14 @@ Clocking in appends a row with an empty `timeOut`; clocking out finds that row
 and fills it in. An empty `timeOut` is what marks a shift as still open, and the
 staff room renders it as "18:00 → still on" with an Open badge.
 
+Both dialogs carry an **AM / PM** picker beside the time. Times stay plain text,
+so `withMeridiem()` composes rather than adding a field: "6:00" plus "PM" is
+stored as "6:00 PM" and every entry already in the log keeps working. It
+declines in two cases, both of which would otherwise write nonsense — when the
+time already ends in AM/PM, and when the hour is 13 or more, since "18:00 PM"
+helps nobody and 18:00 was never ambiguous. The picker can be left blank for
+anyone writing 24-hour time.
+
 The open shift is matched by **`account`**, not by the in-game name — the name
 is free text and two people could type the same one. Clocking in twice is
 refused with a 409 rather than allowed, because a second open row would strand
