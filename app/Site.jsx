@@ -899,8 +899,12 @@ function Editable({ value, onCommit, editing, rows, placeholder }) {
     if (e.key === "Enter" && !rows) e.currentTarget.blur();
   };
 
+  // `ucc-inherit` keeps the phone stylesheet's 16px minimum off these: they
+  // take their type from whatever they are replacing, and a heading that
+  // shrank the moment you edited it would be worse than the zoom it avoids.
   return rows ? (
     <textarea
+      className="ucc-inherit"
       rows={rows}
       value={draft}
       placeholder={placeholder}
@@ -911,6 +915,7 @@ function Editable({ value, onCommit, editing, rows, placeholder }) {
     />
   ) : (
     <input
+      className="ucc-inherit"
       value={draft}
       placeholder={placeholder}
       onChange={(e) => setDraft(e.target.value)}
@@ -2976,13 +2981,16 @@ const LEGAL_STATUS_TONE = {
  * own button, so which one you pressed is the answer. Picking it twice would
  * only let the two disagree.
  */
-function LegalFilingModal({ kind, onClose, onSubmit, session }) {
+function LegalFilingModal({ kind, from, onClose, onSubmit, session }) {
+  // `from` is a template the filing was started from: its wording lands in the
+  // detail, and it is a starting point rather than a link — editing the filing
+  // afterwards does not touch the template, and vice versa.
   const [form, setForm] = useState({
-    title: "",
+    title: from?.name || "",
     party: "",
     reference: "",
     status: LEGAL_STATUS_DEFAULT,
-    detail: "",
+    detail: from?.body || "",
     author: session?.username || "",
   });
   const [busy, setBusy] = useState(false);
@@ -3019,6 +3027,16 @@ function LegalFilingModal({ kind, onClose, onSubmit, session }) {
           {LEGAL_KIND_BLURBS[kind] || "Filed to the legal department's record."}{" "}
           The department can comment on it once it is filed.
         </p>
+
+        {from && (
+          <p
+            className="mb-5"
+            style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}
+          >
+            Started from the “{from.name}” template. Edit it freely — the
+            template itself is not changed.
+          </p>
+        )}
 
         <Field
           label="Title"
@@ -3069,6 +3087,166 @@ function LegalFilingModal({ kind, onClose, onSubmit, session }) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Writes a piece of boilerplate for the department to draft from later. */
+function LegalTemplateModal({ onClose, onSubmit, session }) {
+  const [form, setForm] = useState({
+    name: "",
+    kind: LEGAL_KINDS[0],
+    body: "",
+    notes: "",
+    author: session?.username || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const ready = form.name.trim() && form.body.trim();
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "template", ...form });
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  const upd = (k) => (v) => setForm({ ...form, [k]: v });
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="p-7">
+        <Eyebrow color={C.gold}>Legal department</Eyebrow>
+        <h2 className="mt-2 mb-1" style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}>
+          New template
+        </h2>
+        <p
+          className="mb-5"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
+        >
+          Wording the department reuses. Anyone here can start a filing from it,
+          which copies the text across for editing rather than linking to it.
+        </p>
+
+        <div className="grid md:grid-cols-2 gap-x-5">
+          <Field
+            label="Name"
+            value={form.name}
+            onChange={upd("name")}
+            placeholder="Standard bulk supply agreement"
+          />
+          <Field
+            label="For which kind of document"
+            value={form.kind}
+            onChange={upd("kind")}
+            options={LEGAL_KINDS}
+          />
+        </div>
+        <Field
+          label="The wording"
+          rows={10}
+          value={form.body}
+          onChange={upd("body")}
+          placeholder={"1. The supplier agrees to deliver…\n\nLeave blanks where the detail changes, e.g. [PARTY], [QUANTITY], [DATE]."}
+        />
+        <Field
+          label="When to use it"
+          rows={2}
+          value={form.notes}
+          onChange={upd("notes")}
+          placeholder="Which situations this fits, and what to check before sending it."
+        />
+
+        {error && (
+          <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+            {error}
+          </p>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
+            {busy ? "Saving…" : "Save the template"}
+          </Btn>
+          <Btn onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** One piece of boilerplate, with the button that starts a filing from it. */
+function LegalTemplate({ template, onUse }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Panel style={{ padding: 18 }}>
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <span
+          style={{
+            fontFamily: F.mono,
+            fontSize: 9.5,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            padding: "3px 7px",
+            border: `1px solid ${C.gold}`,
+            color: C.gold,
+          }}
+        >
+          {template.kind}
+        </span>
+        {template.author && (
+          <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}>
+            written by {template.author}
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-2">
+          <Btn onClick={() => setOpen((v) => !v)}>{open ? "Hide" : "Read"}</Btn>
+          <Btn variant="ledger" onClick={() => onUse(template)}>
+            Use
+          </Btn>
+        </span>
+      </div>
+
+      <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink, lineHeight: 1.15 }}>
+        {template.name}
+      </h3>
+      {template.notes && (
+        <p
+          className="mt-1"
+          style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
+        >
+          {template.notes}
+        </p>
+      )}
+
+      {/* Collapsed by default: a template is a wall of text, and a page of them
+          open at once would bury the names you are scanning for. */}
+      {open && (
+        <pre
+          className="mt-3"
+          style={{
+            fontFamily: F.mono,
+            fontSize: 12.5,
+            lineHeight: 1.65,
+            color: C.ink,
+            background: C.paperDeep,
+            border: `1px solid ${C.rule}`,
+            padding: 14,
+            margin: 0,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {template.body}
+        </pre>
+      )}
+    </Panel>
   );
 }
 
@@ -3323,8 +3501,13 @@ function LegalFiling({ filing, session, onSubmit, canDelete }) {
  * thing to find either.
  */
 function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
-  const [filing, setFiling] = useState(null); // which kind is being filed
+  // `{ kind, from }` — which kind is being filed, and the template it was
+  // started from, if any.
+  const [filing, setFiling] = useState(null);
+  const [templating, setTemplating] = useState(false);
   const [msg, setMsg] = useState("");
+
+  const templates = [...(data.legalTemplates || [])].reverse();
 
   const byKind = useMemo(() => {
     const map = new Map(LEGAL_KINDS.map((k) => [k, []]));
@@ -3347,6 +3530,7 @@ function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
     comment: "Comment posted.",
     delete: "Filing deleted.",
     file: "Filed.",
+    template: "Template saved.",
   };
 
   const submit = async (payload) => {
@@ -3375,6 +3559,43 @@ function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
         )}
       </section>
 
+      <section>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <SectionHead
+              index={numerals[0]}
+              title="Legal templates"
+              note="Standard wording the department drafts from. Use one and it copies the text into a new filing for you to edit; the template itself stays as it is."
+            />
+          </div>
+          <div className="shrink-0 pt-1">
+            <Btn variant="solid" onClick={() => { setMsg(""); setTemplating(true); }}>
+              New template
+            </Btn>
+          </div>
+        </div>
+
+        {templates.length === 0 ? (
+          <Panel tone="deep" style={{ padding: 20 }}>
+            <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
+              No templates yet. Write the wording you keep retyping — a standard
+              supply agreement, the licence application you always file — and it
+              will be here the next time somebody needs it.
+            </p>
+          </Panel>
+        ) : (
+          <div className="space-y-3">
+            {templates.map((t, i) => (
+              <LegalTemplate
+                key={t.id || t.name + i}
+                template={t}
+                onUse={(tpl) => { setMsg(""); setFiling({ kind: tpl.kind, from: tpl }); }}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
       {kinds.map((kind, i) => {
         const list = byKind.get(kind) || [];
         return (
@@ -3382,13 +3603,13 @@ function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="min-w-0 flex-1">
                 <SectionHead
-                  index={numerals[i] || String(i + 1)}
+                  index={numerals[i + 1] || String(i + 2)}
                   title={kindPlural(kind)}
                   note={LEGAL_KIND_BLURBS[kind]}
                 />
               </div>
               <div className="shrink-0 pt-1">
-                <Btn variant="solid" onClick={() => { setMsg(""); setFiling(kind); }}>
+                <Btn variant="solid" onClick={() => { setMsg(""); setFiling({ kind }); }}>
                   New {kind.toLowerCase()}
                 </Btn>
               </div>
@@ -3423,8 +3644,17 @@ function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
 
       {filing && (
         <LegalFilingModal
-          kind={filing}
+          kind={filing.kind}
+          from={filing.from}
           onClose={() => setFiling(null)}
+          onSubmit={submit}
+          session={session}
+        />
+      )}
+
+      {templating && (
+        <LegalTemplateModal
+          onClose={() => setTemplating(false)}
           onSubmit={submit}
           session={session}
         />
@@ -4738,6 +4968,27 @@ function ControlRoom({ data, save, level, session, onRestore }) {
       ),
     },
     {
+      key: "legalTemplates",
+      label: "Legal templates",
+      blurb: "The boilerplate the legal department drafts from.",
+      note: "The department writes these on its own page; this is where they are corrected or retired. Removing one here is final — templates are not kept in Deleted records.",
+      count: (data.legalTemplates || []).length,
+      body: (
+        <ListEditor
+          title="Legal templates"
+          items={data.legalTemplates || []}
+          blank={{ ts: "", name: "", kind: LEGAL_KINDS[0], body: "", notes: "", author: "" }}
+          onChange={(v) => set("legalTemplates", v)}
+          fields={[
+            { k: "name", label: "Name" },
+            { k: "kind", label: "For which kind", options: LEGAL_KINDS },
+            { k: "notes", label: "When to use it", full: true, rows: 2 },
+            { k: "body", label: "The wording", full: true, rows: 8 },
+          ]}
+        />
+      ),
+    },
+    {
       key: "jobs",
       label: "Job list",
       blurb: "The server's jobs, as offered on the application form.",
@@ -5605,7 +5856,7 @@ export default function App() {
   if (!data) {
     return (
       <div
-        className="min-h-screen flex items-center justify-center"
+        className="ucc-screen-min flex items-center justify-center"
         style={{ background: C.night }}
       >
         <span
@@ -5627,7 +5878,7 @@ export default function App() {
   const up = change >= 0;
 
   return (
-    <div style={{ background: C.paper, minHeight: "100vh" }}>
+    <div className="ucc-screen-min" style={{ background: C.paper }}>
       {/* ticker rail */}
       <div style={{ background: C.nightDeep, color: "#FFFFFF" }}>
         <div className="max-w-6xl mx-auto px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-1">
@@ -5665,9 +5916,9 @@ export default function App() {
             style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
           >
             <Seal ticker={data.company.ticker} size={34} tone="dark" />
-            <span className="min-w-0">
+            <span className="min-w-0" style={{ overflow: "hidden" }}>
               <span
-                className="block"
+                className="block ucc-masthead-name"
                 style={{
                   fontFamily: F.display,
                   fontSize: 20,
@@ -5680,7 +5931,7 @@ export default function App() {
                 United Commerce
               </span>
               <span
-                className="block"
+                className="block ucc-masthead-hq"
                 style={{
                   fontFamily: F.mono,
                   fontSize: 9.5,
@@ -5693,7 +5944,7 @@ export default function App() {
               </span>
             </span>
           </button>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 ucc-masthead-actions">
             {data.company.discordInvite && (
               <a href={data.company.discordInvite} target="_blank" rel="noreferrer">
                 <Btn variant="light">Discord</Btn>
@@ -5718,8 +5969,8 @@ export default function App() {
             )}
           </div>
         </div>
-        <nav className="max-w-6xl mx-auto px-4 overflow-x-auto">
-          <div className="flex gap-6" style={{ whiteSpace: "nowrap" }}>
+        <nav className="max-w-6xl mx-auto px-4 overflow-x-auto ucc-nav-scroll">
+          <div className="flex gap-6 ucc-nav-row" style={{ whiteSpace: "nowrap" }}>
             {tabs
               .filter((t) => level >= t.min)
               .map((t) => (

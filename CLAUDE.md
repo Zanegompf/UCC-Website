@@ -52,8 +52,8 @@ app/
     shifts/         POST clock in / clock out (staff+), body.action "in" | "out"
     transactions/   POST a deal done off the chest shops (staff+)
     applications/   POST job application (any signed-in account, incl. member)
-    legal/          POST legal filing or comment (legal+), body.action
-                    "file" | "comment" | "delete" — delete is ceo only
+    legal/          POST for the legal department (legal+), body.action
+                    "file" | "comment" | "template" | "delete" — delete is ceo only
     archive/        POST body.action "restore" — puts a deleted row back (exec)
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
@@ -211,6 +211,7 @@ transactions[]{ts,username,type,counterparty,amount,materials,detail,account}
 applications[]{ts,username,discord,role,wage,experience,references,notes,status,account}
 legalFilings[]{id,ts,kind,title,party,reference,status,detail,author,account,
                comments[]{ts,author,body,account}}   <- id is load-bearing; see below
+legalTemplates[]{id,ts,name,kind,body,notes,author,account}   <- legal+ writes these
 deleted[]{id,kind,label,ts,by,entry{...}}   <- server-managed, NOT in EDITABLE
 jobs[]{name,category}                              <- public; the dropdown reads it
 discord{webhook,channel,guild,hooks[]{name,url,channel,events}}
@@ -444,6 +445,10 @@ section I, and only rendered for `legal` and above. It is local state
 which subpage you last opened is not worth a history entry, and a refresh
 returning to the staff room is the right default.
 
+**Section I is Legal templates**, and the kinds run from II. The numeral for a
+kind is `numerals[i + 1]` — if another fixed section is added above them, that
+offset moves with it rather than the numbers being written by hand.
+
 **One section per kind of document.** `LEGAL_KINDS` in `lib/legal.js` drives the
 sections, the pickers and the "New …" buttons, so adding a kind there adds all
 three. A filing whose `kind` is no longer in the list still gets a section of its
@@ -473,6 +478,26 @@ under it is the department thinking aloud.
 Two caps, not one: 200 filings on the record like the other logs, and **50
 comments per filing**, so one long argument cannot grow the blob that every page
 load reads.
+
+### Templates
+
+`legalTemplates[]` is boilerplate the department drafts from — one per kind,
+written on the department's own page. It has its own action, `"template"`,
+rather than going through a page save, because `legal` cannot PUT `/api/data`
+and the people who write the templates are the ones who use them.
+
+**Use copies, it does not link.** `LegalFilingModal` takes a `from` prop and
+seeds the title and detail with the template's; after that the two have nothing
+to do with each other. A live link would mean editing a template silently
+rewrote filings already sent to somebody.
+
+The body is capped at 8000 characters against 4000 for a filing's detail — a
+template is a whole document, a filing's detail is usually a summary of one.
+
+Templates are **not** in `ARCHIVED_LISTS`, so removing one is final. They are
+reusable wording rather than a record of something that happened, and the diff
+only earns its keep on lists where losing a row loses history. Correcting or
+retiring one is the control room's job, like the job list.
 
 ### Deleting a filing
 
@@ -742,6 +767,38 @@ F = { display:'Bodoni Moda', body:'Archivo', mono:'IBM Plex Mono' }
 Prose voice: plain, concrete, a bit dry, occasionally wry. Contractions fine.
 Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
 "empower" / "unlock". Error messages say what went wrong and what to do.
+
+## Phones
+
+The desktop layout is the design; the phone rules are corrections to it, and they
+live at the bottom of `globals.css` inside `max-width` queries so desktop is
+untouched. Four things were actually wrong, none of which was a broken grid —
+measured at 320/360/390/412/430px, document overflow was zero on every tab.
+
+- **Form controls are forced to 16px under 768px.** iOS Safari zooms the whole
+  page in when you focus a control whose text is under 16px, and does not zoom
+  back out. Every field here was 14px, so tapping any box left the site zoomed —
+  which is what "it goes weird on my iPhone" turned out to mean. **16 is a
+  threshold, not a preference: do not tidy these back to 14.** `Editable` carries
+  `ucc-inherit` to opt out, because those inputs take their type from the heading
+  they replace and would shrink a 24px title as you edited it.
+- **`100vh` → `.ucc-screen-min`**, which is `100dvh` where supported. iOS
+  measures `100vh` against the viewport with the toolbars *hidden*, so the bottom
+  of the page sat underneath them. On a desktop the two are identical.
+- **The masthead collided under about 420px** — the buttons are `shrink-0`, the
+  wordmark was not clipped, and "Commerce" ran underneath the settings gear at
+  320px. The name now gives way instead: `.ucc-masthead-hq` is hidden and
+  `.ucc-masthead-name` drops to 16.5px.
+- **The tab strip has a right-edge fade** (`.ucc-nav-scroll`). It cannot fit on a
+  phone at any sensible size, so it scrolls — but mobile browsers only show a
+  scrollbar while it is moving, so it just looked cut off and nobody found the
+  staff room. The gap tightens to 16px there too.
+
+To re-measure: the app sends `frame-ancestors 'none'`, so it cannot be put in an
+iframe, and window resizing did not take. What worked was a throwaway Node proxy
+that strips `content-security-policy` and `x-frame-options`, serving a harness
+page of fixed-width iframes — media queries and `vw` resolve against the iframe,
+so it is a real test. Keep that out of the repo.
 
 ## Gotchas already paid for
 

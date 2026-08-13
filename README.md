@@ -280,9 +280,19 @@ staff room, above the incoming requests, and opens a page of its own. Only the
 legal rank and executives see the button — staff would only reach a page the
 server has already emptied.
 
-The page has a section for each kind of document, because a contract and a court
-filing are not the same job and one long list of everything would mean reading it
-all to find either:
+**Section I is Legal templates** — standard wording the department drafts from,
+such as the supply agreement you keep retyping or the licence application you
+always file. Anyone in the department can write one. Each has a **Use** button
+that starts a new filing with the wording already in it, ready to edit; the
+template itself is left alone, so changing a filing afterwards never rewrites the
+template and vice versa. **Read** expands the full text.
+
+Templates are corrected or retired in Control room → Legal templates. Removing
+one there is final — unlike filings, templates are not kept in Deleted records.
+
+Below them, the page has a section for each kind of document, because a contract
+and a court filing are not the same job and one long list of everything would
+mean reading it all to find either:
 
 | Section | For |
 |---|---|
@@ -333,7 +343,7 @@ changes it and that should not need a deploy.
 the page. Everything past them is **one page each**, reached from the cards
 under "The rest of the record" — company details, divisions, staff, projects,
 rate card, financials, client requests, transactions, shift log, applications,
-legal filings, job list, deleted records and accounts. They used to be stacked in
+legal filings, legal templates, job list, deleted records and accounts. They used to be stacked in
 one column, so reaching the job list meant scrolling past the whole company.
 Everything on those pages saves the moment you type it.
 
@@ -401,7 +411,7 @@ developer tools shows them nothing extra.
 | Balance sheet, internal staff notes | — | — | — | yes | yes | yes | yes |
 | Incoming client requests | — | — | — | yes | yes | yes | yes |
 | Shift log, transaction log, clocking in | — | — | — | yes | yes | yes | yes |
-| Legal filings, and commenting on them | — | — | — | — | yes | yes | yes |
+| Legal filings and templates, and commenting | — | — | — | — | yes | yes | yes |
 | Job applications and the hiring board | — | — | — | — | — | yes | yes |
 | Deleted records, and restoring one | — | — | — | — | — | yes | yes |
 | Editing anything, accounts, webhooks | — | — | — | — | — | yes | yes |
@@ -572,6 +582,13 @@ not public: only public notices post, and only with the box ticked.
 
 **Vercel Web Analytics shows nothing** — it has to be switched on for the
 project in the Vercel dashboard. The browser console says so in as many words.
+
+**The site looked wrong on a phone** — if somebody reports this from before
+August 2026, it is probably one of four things now fixed: tapping a form box
+zoomed an iPhone in and never back out, the bottom of the page hid under
+Safari's toolbar, the company name overlapped the buttons on narrow Androids,
+and the tab strip looked cut off because phones only show a scrollbar while it
+is moving. Ask them to reload; the fix is in the page, not their browser.
 
 **Bot says "Bad or missing bot key"** — `BOT_API_KEY` differs between Vercel and
 Railway. They must be character-for-character identical.

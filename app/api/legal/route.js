@@ -113,6 +113,48 @@ export async function POST(req) {
     );
   }
 
+  /* ------------------------------- templates ----------------------------- */
+
+  /**
+   * Boilerplate the department drafts from. Its own action rather than a page
+   * save because `legal` cannot PUT /api/data — that is exec only — and the
+   * people who write the templates are the ones who use them.
+   *
+   * Correcting or removing one is left to the control room, like the job list.
+   */
+  if (body.action === "template") {
+    const kind = String(body.kind || "").trim();
+    if (!LEGAL_KINDS.includes(kind)) {
+      return bad("Say which kind of document this is a template for.");
+    }
+
+    const name = String(body.name || "").slice(0, 120).trim();
+    if (!name) return bad("Give the template a name.");
+
+    const text = String(body.body || "").slice(0, 8000).trim();
+    if (!text) return bad("A template needs some wording to be worth keeping.");
+
+    const template = {
+      id: entryId(),
+      ts: new Date().toISOString().slice(0, 10),
+      name,
+      kind,
+      body: text,
+      notes: String(body.notes || "").slice(0, 1000).trim(),
+      author: String(body.author || "").slice(0, 40).trim() || session.username,
+      account: session.username,
+    };
+
+    const templates = Array.isArray(data.legalTemplates) ? data.legalTemplates : [];
+    data.legalTemplates = [...templates, template].slice(-CAPS.legalTemplates);
+    await writeData(data);
+
+    return NextResponse.json(
+      { ok: true, id: template.id },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   /* ------------------------------- deleting ------------------------------ */
 
   /**

@@ -65,6 +65,63 @@ input:focus, textarea:focus, select:focus { border-color: #111C2E !important; }
 
 .ucc-hub:hover span:first-child { color: #9B3630; }
 
+/* ------------------------------------------------------------------ *
+ * Phones
+ *
+ * Everything below is a max-width query, so the desktop layout is
+ * untouched. The one exception is .ucc-screen-min, which swaps 100vh for
+ * 100dvh everywhere — on a desktop the two are identical, because there
+ * is no toolbar that comes and goes.
+ * ------------------------------------------------------------------ */
+
+/* iOS Safari's 100vh is the viewport with the toolbars HIDDEN, so a
+   100vh page is taller than what you can actually see and the bottom
+   sits under the browser chrome. dvh is the live value. */
+.ucc-screen-min { min-height: 100vh; }
+@supports (min-height: 100dvh) {
+  .ucc-screen-min { min-height: 100dvh; }
+}
+
+@media (max-width: 767px) {
+  /* iOS zooms the whole page in when you focus a form control whose text
+     is under 16px, and does not zoom back out afterwards — which is what
+     "the site goes weird when I tap a box" turns out to be. 16px is the
+     threshold, not a preference.
+
+     .ucc-inherit is excluded: those are the in-place chart editors, which
+     take their type from the heading they replace, and forcing them to
+     16px would make a 24px title shrink as you edited it. */
+  input:not(.ucc-inherit),
+  select:not(.ucc-inherit),
+  textarea:not(.ucc-inherit) {
+    font-size: 16px !important;
+  }
+
+  /* The tab strip cannot fit on a phone at any sensible size, so it
+     scrolls. Mobile browsers only show a scrollbar while it is moving,
+     so without this the row just looks cut off. Tighter spacing fits one
+     more tab in, and the fade says there is more to the right. */
+  .ucc-nav-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent 100%);
+  }
+  .ucc-nav-scroll::-webkit-scrollbar { display: none; }
+  .ucc-nav-row { gap: 16px !important; }
+}
+
+/* Under about 400px the masthead ran out of room and the wordmark
+   slid underneath the settings and account buttons. The buttons cannot
+   shrink, so the name gives way: the location line goes and the type
+   comes down a step. */
+@media (max-width: 419px) {
+  .ucc-masthead-name { font-size: 16.5px !important; }
+  .ucc-masthead-hq { display: none !important; }
+  .ucc-masthead-actions { gap: 6px !important; }
+  .ucc-masthead-actions .ucc-btn { padding-left: 11px !important; padding-right: 11px !important; }
+}
+
 ::selection { background: #C0913A; color: #0C1724; }
 
 @media (prefers-reduced-motion: reduce) {
