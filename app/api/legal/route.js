@@ -9,7 +9,8 @@ import {
   LEGAL_STATUS_DEFAULT,
 } from "@/lib/legal";
 import { entryId } from "@/lib/ids";
-import { archiveEntry, MAX_DELETED } from "@/lib/archive";
+import { archiveEntry } from "@/lib/archive";
+import { CAPS, MAX_COMMENTS } from "@/lib/caps";
 import {
   rateLimit,
   tooMany,
@@ -28,13 +29,10 @@ const MAX_BODY = 8 * 1024;
 // department that files a handful of things an evening.
 const PER_ACCOUNT = { limit: 40, windowSeconds: 3600 };
 
-// Same rolling window as the other logs.
-const MAX_FILINGS = 200;
-
-// Per filing, so one long-running argument cannot grow the record without
-// bound. The whole record is read and written as one object, so an unbounded
-// thread would eventually slow every page load on the site.
-const MAX_COMMENTS = 50;
+// Both caps live in lib/caps.js: CAPS.legalFilings is the same rolling window
+// the other logs get, and MAX_COMMENTS bounds one filing's thread — the whole
+// record is read and written as one object, so an unbounded argument would
+// eventually slow every page load on the site.
 
 export async function POST(req) {
   if (crossSite(req)) return refuseCrossSite();
@@ -152,7 +150,7 @@ export async function POST(req) {
     data.deleted = [
       ...(Array.isArray(data.deleted) ? data.deleted : []),
       archiveEntry("legalFilings", gone, session.username),
-    ].slice(-MAX_DELETED);
+    ].slice(-CAPS.deleted);
     await writeData(data);
 
     return NextResponse.json(
@@ -192,7 +190,7 @@ export async function POST(req) {
     comments: [],
   };
 
-  data.legalFilings = [...filings, entry].slice(-MAX_FILINGS);
+  data.legalFilings = [...filings, entry].slice(-CAPS.legalFilings);
   await writeData(data);
 
   // No Discord post. Posting a notice is the only thing on this site that

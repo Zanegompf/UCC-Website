@@ -343,10 +343,17 @@ it said is kept on the Deleted records page, newest first, with who deleted it
 and when. It exists because a mis-click on Remove used to be final — the save
 overwrote the list and nothing on the record remembered.
 
-It is **read-only**: the live record really is gone, this is the copy kept in
-case it should not have been, to be read and retyped. It holds the last **200**
-deletions, then the oldest fall off, so it is a safety net for a recent mistake
-rather than a permanent archive.
+Each one has a **Restore** button that puts it back. The restored row goes to the
+**end of its list**, keeping the date it was originally filed — nothing records
+where it used to sit, and the rows around it have moved on since. A restored
+legal filing brings its comments back with it. Once restored it leaves this page,
+because it is no longer deleted.
+
+The page holds the last **200** deletions, then the oldest fall off, so it is a
+safety net for a recent mistake rather than a permanent archive. Two cases it
+will refuse rather than guess: restoring into a list that is already full at 200
+(clear something first, or the oldest row would be pushed off and lost), and
+restoring something that is already back.
 
 Everything else is still deleted for good — staff, divisions, the rate card, the
 job list, notices, shifts, transactions and the monthly figures. Those change
@@ -396,7 +403,7 @@ developer tools shows them nothing extra.
 | Shift log, transaction log, clocking in | — | — | — | yes | yes | yes | yes |
 | Legal filings, and commenting on them | — | — | — | — | yes | yes | yes |
 | Job applications and the hiring board | — | — | — | — | — | yes | yes |
-| Deleted records | — | — | — | — | — | yes | yes |
+| Deleted records, and restoring one | — | — | — | — | — | yes | yes |
 | Editing anything, accounts, webhooks | — | — | — | — | — | yes | yes |
 | Editing the company chart in place | — | — | — | — | — | — | yes |
 | Deleting a legal filing from the department's page | — | — | — | — | — | — | yes |
@@ -479,6 +486,7 @@ tight enough to get in the way of ordinary use, but a script gets stopped:
 | Shifts and transactions | 30 / hour each |
 | Job applications | 5 / hour |
 | Legal filings and comments | 40 / hour combined |
+| Restoring a deleted record | 20 / hour |
 | Posting to Discord | 20 / hour |
 
 Sign-in and password changes count **failures only**, so using the site
@@ -500,7 +508,8 @@ Minecraft account it claims to be, and there is no log of who changed what.
 
 - Check Deleted records if something has gone missing from an application list,
   the legal filings, the client desk or the projects. It keeps the last 200
-  deletions, so a mis-click is recoverable by retyping — but only for a while.
+  deletions and each has a Restore button, so a mis-click is undoable — but only
+  for a while.
 - **When someone leaves the company, delete their account.** That is the only
   thing that actually removes their access. Changing what a page says does not,
   and neither does demoting them if they still know the password.

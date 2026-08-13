@@ -4,7 +4,8 @@ import { writeData } from "@/lib/store";
 import { getSession } from "@/lib/auth";
 import { filterData, levelOf, LEVEL, effectiveRole } from "@/lib/roles";
 import { crossSite, refuseCrossSite, readJson, refuseBody } from "@/lib/guard";
-import { archiveRemoved, MAX_DELETED } from "@/lib/archive";
+import { archiveRemoved } from "@/lib/archive";
+import { CAPS, STOCK_HISTORY_CAP } from "@/lib/caps";
 
 export const dynamic = "force-dynamic";
 
@@ -42,17 +43,8 @@ const EDITABLE = [
 ];
 
 // PUT replaces these lists wholesale, so the caps that the append routes apply
-// have to be reapplied here too.
-const CAPS = {
-  requests: 200,
-  announcements: 60,
-  shifts: 200,
-  transactions: 200,
-  applications: 200,
-  legalFilings: 200,
-  // Not in EDITABLE, but the loop below runs over `next`, so this still applies.
-  deleted: MAX_DELETED,
-};
+// have to be reapplied here too. They live in lib/caps.js — `deleted` is not in
+// EDITABLE, but the loop below runs over `next`, so its cap still applies.
 
 export async function GET() {
   try {
@@ -123,8 +115,11 @@ export async function PUT(req) {
     }
   }
 
-  if (Array.isArray(next.stock?.history) && next.stock.history.length > 120) {
-    next.stock.history = next.stock.history.slice(-120);
+  if (
+    Array.isArray(next.stock?.history) &&
+    next.stock.history.length > STOCK_HISTORY_CAP
+  ) {
+    next.stock.history = next.stock.history.slice(-STOCK_HISTORY_CAP);
   }
 
   await writeData(next);

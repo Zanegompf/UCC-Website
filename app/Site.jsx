@@ -20,6 +20,7 @@ import {
   kindPlural,
 } from "@/lib/legal";
 import { ARCHIVED_LISTS } from "@/lib/archive";
+import { CAPS, STOCK_HISTORY_CAP } from "@/lib/caps";
 
 /* ------------------------------------------------------------------ *
  * The United Commerce Corporation — DemocracyCraft corporate site
@@ -4177,12 +4178,31 @@ const DELETED_SUMMARY = {
   }),
 };
 
-function DeletedRow({ row }) {
+function DeletedRow({ row, onRestore }) {
   const entry = row.entry || {};
   const shape = DELETED_SUMMARY[row.kind];
   const { title, meta, detail } = shape
     ? shape(entry)
     : { title: entry.name || entry.title || "(no title)", meta: [], detail: "" };
+
+  // Restoring does not arm the way deleting does. Putting something back is
+  // recoverable — delete it again and it lands here again — and the chart's
+  // two-step is reserved for the edits that retyping cannot undo.
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const restore = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onRestore(row);
+      // On success the row leaves the archive, and this component with it.
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
 
   return (
     <Panel style={{ padding: 18 }}>
@@ -4211,7 +4231,18 @@ function DeletedRow({ row }) {
             originally filed {entry.ts}
           </span>
         )}
+        <span className="ml-auto">
+          <Btn variant="ledger" onClick={restore} disabled={busy}>
+            {busy ? "Restoring…" : "Restore"}
+          </Btn>
+        </span>
       </div>
+
+      {error && (
+        <p className="mb-2" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+          {error}
+        </p>
+      )}
 
       <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink, lineHeight: 1.15 }}>
         {title || "(no title)"}
@@ -4246,8 +4277,16 @@ function DeletedRow({ row }) {
 }
 
 /** Everything that has been removed from the four lists that keep their history. */
-function DeletedRecords({ data }) {
+function DeletedRecords({ data, onRestore }) {
+  const [msg, setMsg] = useState("");
   const rows = [...(data.deleted || [])].reverse();
+
+  const restore = async (row) => {
+    const res = await onRestore(row.id);
+    setMsg(
+      `Restored to ${String(res.label || "the record").toLowerCase()}. It is at the end of the list.`
+    );
+  };
 
   const byKind = useMemo(() => {
     const map = new Map(Object.keys(ARCHIVED_LISTS).map((k) => [k, []]));
@@ -4261,17 +4300,25 @@ function DeletedRecords({ data }) {
 
   if (!rows.length) {
     return (
-      <Panel tone="deep" style={{ padding: 20 }}>
-        <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
-          Nothing has been deleted. When somebody removes an application, a legal
-          filing, a client request or a project, what it said is kept here.
-        </p>
-      </Panel>
+      <div className="space-y-4">
+        {msg && (
+          <p style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}>{msg}</p>
+        )}
+        <Panel tone="deep" style={{ padding: 20 }}>
+          <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
+            Nothing has been deleted. When somebody removes an application, a legal
+            filing, a client request or a project, what it said is kept here.
+          </p>
+        </Panel>
+      </div>
     );
   }
 
   return (
     <div className="space-y-10">
+      {msg && (
+        <p style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}>{msg}</p>
+      )}
       {[...byKind.entries()].map(([kind, list]) => (
         <section key={kind}>
           <div className="flex items-baseline gap-3 mb-3">
@@ -4287,7 +4334,7 @@ function DeletedRecords({ data }) {
           ) : (
             <div className="space-y-3">
               {list.map((row) => (
-                <DeletedRow key={row.id} row={row} />
+                <DeletedRow key={row.id} row={row} onRestore={restore} />
               ))}
             </div>
           )}
@@ -4297,7 +4344,7 @@ function DeletedRecords({ data }) {
   );
 }
 
-function ControlRoom({ data, save, level, session }) {
+function ControlRoom({ data, save, level, session, onRestore }) {
   // Which of the pages past Discord is open, or null for the hub. Deliberately
   // local: the tab itself is in the address, but which editor you last had open
   // is not worth a history entry.
@@ -4333,10 +4380,13 @@ function ControlRoom({ data, save, level, session }) {
     next.stock.prevClose = next.stock.price;
     next.stock.price = p;
     next.stock.updated = pricePoint.label;
-    // Matches the 120 the save route and the bot both keep. A tighter trim here
-    // meant a price posted from the control room quietly threw away history the
-    // same price posted from Discord would have kept.
-    next.stock.history = [...next.stock.history, { label: pricePoint.label, price: p }].slice(-120);
+    // Shares the cap with the save route and the bot, from lib/caps.js. A
+    // tighter trim here meant a price posted from the control room quietly threw
+    // away history the same price posted from Discord would have kept.
+    next.stock.history = [
+      ...next.stock.history,
+      { label: pricePoint.label, price: p },
+    ].slice(-STOCK_HISTORY_CAP);
     save(next);
     setPricePoint({ label: "", price: "" });
   };
@@ -4365,9 +4415,9 @@ function ControlRoom({ data, save, level, session }) {
         body: post.body,
       },
       ...next.announcements,
-      // 60 is the cap in CAPS in app/api/data/route.js, and what the bot keeps.
+      // Shares the cap with the save route and the bot, from lib/caps.js.
       // Trimming to less here dropped notices a save would have allowed.
-    ].slice(0, 60);
+    ].slice(0, CAPS.announcements);
     save(next);
     let msg = "Notice published.";
     if (post.toDiscord && post.audience === "public") {
@@ -4710,9 +4760,9 @@ function ControlRoom({ data, save, level, session }) {
       label: "Deleted records",
       blurb:
         "Applications, legal filings, client requests and projects that have been removed.",
-      note: "What each one said when it was deleted, newest first. Read-only: the record itself is gone, this is the copy kept in case it should not have been. The last 200 are held, then the oldest fall off.",
+      note: "What each one said when it was deleted, newest first. Restore puts it back at the end of its list, keeping the date it was originally filed. The last 200 deletions are held, then the oldest fall off.",
       count: (data.deleted || []).length,
-      body: <DeletedRecords data={data} />,
+      body: <DeletedRecords data={data} onRestore={onRestore} />,
     },
     {
       key: "accounts",
@@ -5518,6 +5568,20 @@ export default function App() {
     [load]
   );
 
+  // Puts a deleted row back. Returns the route's answer so the page can name
+  // the list it went to.
+  const restoreDeleted = useCallback(
+    async (id) => {
+      const res = await api("/api/archive", {
+        method: "POST",
+        body: JSON.stringify({ action: "restore", id }),
+      });
+      await load();
+      return res;
+    },
+    [load]
+  );
+
   const level = LEVEL[role] ?? 0;
 
   const tabs = useMemo(
@@ -5714,7 +5778,15 @@ export default function App() {
             onSubmitLegal={submitLegal}
           />
         )}
-        {tab === "Control room" && <ControlRoom data={data} level={level} save={save} session={session} />}
+        {tab === "Control room" && (
+          <ControlRoom
+            data={data}
+            level={level}
+            save={save}
+            session={session}
+            onRestore={restoreDeleted}
+          />
+        )}
         {tab === "Account" && session.username && (
           <AccountPage
             session={session}

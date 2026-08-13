@@ -54,6 +54,7 @@ app/
     applications/   POST job application (any signed-in account, incl. member)
     legal/          POST legal filing or comment (legal+), body.action
                     "file" | "comment" | "delete" — delete is ceo only
+    archive/        POST body.action "restore" — puts a deleted row back (exec)
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
@@ -69,6 +70,8 @@ lib/
                     does not have to import lib/archive to borrow it
   archive.js        ARCHIVED_LISTS, withIds(), archiveRemoved() — what keeps a
                     removed row on `deleted`
+  caps.js           CAPS, MAX_COMMENTS, STOCK_HISTORY_CAP. The only place a list
+                    length is written down
   guard.js          rate limits, client IP, CSRF check, body caps, safeEqual
   discord.js        webhook fan-out. Several hooks, each routed by `events`
 bot/
@@ -123,6 +126,7 @@ whether the request gets that far at all. It is not a substitute for the above.
 | transactions | 30 / hour per account | all |
 | applications | 5 / hour per account | all |
 | legal filings and comments | 40 / hour per account | all |
+| restoring a deleted row | 20 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
 | bot key | 10 / 10 min per IP | wrong keys only |
 
@@ -533,9 +537,35 @@ save carrying a forged `deleted` is ignored.
 It is stripped **below exec**, not per kind. It holds removed applications and
 legal filings, so it takes the tightest gate of anything inside it.
 
-The page is **read-only**. There is no restore: putting a row back raises
-questions about position, id collision and the cap that nobody has needed
-answered yet. Capped at 200 like the other logs.
+Capped at 200 like the other logs.
+
+### Restoring
+
+`POST /api/archive` with `{action:"restore", id}`, where `id` is the **archive
+row's** id, not the entry's. **Executive**, matching the page it is reached from
+— looser than deleting a legal filing, which is ceo only, because putting
+something back is a recovery rather than a destruction, and an executive who
+could not undo their own mis-click would just retype it.
+
+Three decisions the route makes, each of which had an obvious wrong answer:
+
+- **It appends to the end of the list**, not to the row's old position. Nothing
+  records where it sat and the rows around it have moved since. The entry keeps
+  its own `ts`, so it still reads with the date it was originally filed.
+- **It refuses when the target list is at its cap**, rather than appending and
+  letting the slice push the oldest row off — that row would go without ever
+  reaching the archive, so a restore would silently cost a record.
+- **It refuses an entry whose id is already in the list.** Two rows sharing an id
+  would break the two things ids exist for: the archive reads them into a Set,
+  and a filing's comments are addressed by one. Defensive — the API gives no way
+  to get a duplicate archive row, so this is unreachable in practice.
+
+On success the archive row is removed, because a thing that is back on the record
+should not still be listed as deleted.
+
+The restored row keeps its id, so the diff sees it as present and unchanged: a
+save straight after a restore archives nothing, and so do keystroke edits to the
+restored row. Both verified, along with delete → restore → delete → restore.
 
 ## Discord posting
 
@@ -766,19 +796,22 @@ Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
   decision, not a cap.
 - Concurrent exec edits are last-write-wins across the whole blob.
 
-## The caps live in three places
+## The caps live in one place
 
-`CAPS` in `app/api/data/route.js` is the authority, the append routes repeat it
-for the list they touch, and **the control room trims client-side as well** —
-`publish()` for `announcements` and `addPricePoint()` for `stock.history` in
-`Site.jsx`.
+`lib/caps.js`. `CAPS`, `MAX_COMMENTS` and `STOCK_HISTORY_CAP` are imported by
+the save route, the append routes, the archive route and the control room's two
+client-side trims (`publish()` and `addPricePoint()` in `Site.jsx`). Import it;
+do not write the number again.
 
-All three have to agree. They did not: publishing a notice trimmed to 40 against
-a cap of 60, and recording a price trimmed history to 60 against 120, so a
-notice posted on the site quietly dropped entries that the same notice posted
-from Discord would have kept. Both are now 60 and 120. If you change a cap,
-change it in every place that trims that list, and grep for `slice(` in
-`Site.jsx` before assuming the route is the only one.
+They used to be copied into each of those, and they drifted: publishing a notice
+trimmed to 40 against a cap of 60, and recording a price trimmed history to 60
+against 120, so a notice posted on the site quietly dropped entries that the same
+notice posted from Discord would have kept. Restore needed a fourth copy, which
+was the point to stop.
+
+The two `slice(0, 40)` calls left in `Site.jsx` are **not** caps — they are how
+many shift and transaction rows the staff room renders. See the note in "Known
+limits".
 
 ## House rules for changes
 
