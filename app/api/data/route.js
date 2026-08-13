@@ -34,6 +34,7 @@ const EDITABLE = [
   "shifts",
   "transactions",
   "applications",
+  "legalFilings",
   "jobs",
   "discord",
   "settings",
@@ -47,6 +48,7 @@ const CAPS = {
   shifts: 200,
   transactions: 200,
   applications: 200,
+  legalFilings: 200,
 };
 
 export async function GET() {

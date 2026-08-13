@@ -12,6 +12,13 @@ import {
   Bar,
   CartesianGrid,
 } from "recharts";
+import {
+  LEGAL_KINDS,
+  LEGAL_KIND_BLURBS,
+  LEGAL_STATUSES,
+  LEGAL_STATUS_DEFAULT,
+  kindPlural,
+} from "@/lib/legal";
 
 /* ------------------------------------------------------------------ *
  * The United Commerce Corporation — DemocracyCraft corporate site
@@ -60,12 +67,23 @@ const F = {
 };
 
 
-const LEVEL = { public: 0, member: 0, client: 1, staff: 2, exec: 3, ceo: 4 };
+// Mirrors LEVEL in lib/roles.js. The server is the authority; this copy only
+// decides what the interface offers to try.
+const LEVEL = {
+  public: 0,
+  member: 0,
+  client: 1,
+  staff: 2,
+  legal: 3,
+  exec: 4,
+  ceo: 5,
+};
 const ROLE_NAME = {
   public: "Visitor",
   member: "Member",
   client: "Client",
   staff: "Staff",
+  legal: "Legal",
   exec: "Executive",
   ceo: "Chief Executive",
 };
@@ -73,6 +91,7 @@ const ROLE_BLURB = {
   member: "You have an account, but no company access yet. An executive can raise it.",
   client: "You can see the rate card, client projects and the request desk.",
   staff: "You can see the balance sheet, internal notes and incoming requests.",
+  legal: "Everything a staff member sees, plus the legal department's filings, which you can add to and comment on.",
   exec: "You can edit the company record and manage accounts.",
   ceo: "Everything an executive can do, plus rearranging the company chart from the people page.",
 };
@@ -81,6 +100,7 @@ const ROLE_TABS = [
   { key: "member", label: "Member", hint: "Signed in, sees only public material" },
   { key: "client", label: "Client", hint: "Rate card, client projects, request desk" },
   { key: "staff", label: "Staff", hint: "Balance sheet, internal notes, requests" },
+  { key: "legal", label: "Legal", hint: "Staff, plus the legal department's filings" },
   { key: "exec", label: "Exec", hint: "Full control of the company record" },
   { key: "ceo", label: "CEO", hint: "Exec, plus editing the chart in place" },
 ];
@@ -2935,11 +2955,415 @@ function ApplicantAccount({ account, users, me, busy, onPick }) {
   );
 }
 
-function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction }) {
+/* -------------------------- the legal department ------------------------- */
+
+/** Where a filing has got to. Green agreed, gold under review, oxblood pulled. */
+const LEGAL_STATUS_TONE = {
+  Drafting: C.inkSoft,
+  Filed: C.ink,
+  "In review": C.gold,
+  Agreed: C.ledger,
+  Closed: C.inkSoft,
+  Withdrawn: C.seal,
+};
+
+/**
+ * Opens a filing of one particular kind.
+ *
+ * The kind is not a field on this form: each kind has its own section and its
+ * own button, so which one you pressed is the answer. Picking it twice would
+ * only let the two disagree.
+ */
+function LegalFilingModal({ kind, onClose, onSubmit, session }) {
+  const [form, setForm] = useState({
+    title: "",
+    party: "",
+    reference: "",
+    status: LEGAL_STATUS_DEFAULT,
+    detail: "",
+    author: session?.username || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const ready = form.title.trim();
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "file", kind, ...form });
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  const upd = (k) => (v) => setForm({ ...form, [k]: v });
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="p-7">
+        <Eyebrow color={C.gold}>Legal department</Eyebrow>
+        <h2 className="mt-2 mb-1" style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}>
+          New {kind.toLowerCase()}
+        </h2>
+        <p
+          className="mb-5"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
+        >
+          {LEGAL_KIND_BLURBS[kind] || "Filed to the legal department's record."}{" "}
+          The department can comment on it once it is filed.
+        </p>
+
+        <Field
+          label="Title"
+          value={form.title}
+          onChange={upd("title")}
+          placeholder="Supply agreement — Willow Holdings"
+        />
+        <div className="grid md:grid-cols-2 gap-x-5">
+          <Field
+            label="Other party"
+            value={form.party}
+            onChange={upd("party")}
+            placeholder="Steve, or Willow Holdings"
+          />
+          <Field
+            label="Reference"
+            value={form.reference}
+            onChange={upd("reference")}
+            placeholder="Case or contract number"
+          />
+          <Field
+            label="Status"
+            value={form.status}
+            onChange={upd("status")}
+            options={LEGAL_STATUSES}
+          />
+          <Field label="Filed by" value={form.author} onChange={upd("author")} placeholder="Steve" />
+        </div>
+        <Field
+          label="Detail"
+          rows={6}
+          value={form.detail}
+          onChange={upd("detail")}
+          placeholder="The terms, the question, or what is being argued. Whatever the next person to pick this up needs."
+        />
+
+        {error && (
+          <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+            {error}
+          </p>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
+            {busy ? "Filing…" : "File it"}
+          </Btn>
+          <Btn onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * The department talking about one filing.
+ *
+ * The thread lives on the filing rather than in Discord so that the argument
+ * and the document it is about stay in one place — six months later nobody can
+ * find the channel message that explained why a clause reads the way it does.
+ */
+function FilingComments({ filing, session, onSubmit }) {
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const comments = Array.isArray(filing.comments) ? filing.comments : [];
+
+  const submit = async () => {
+    if (!draft.trim() || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "comment", id: filing.id, body: draft });
+      setDraft("");
+    } catch (e) {
+      setError(e.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="mt-4 pt-3" style={{ borderTop: `1px dashed ${C.rule}` }}>
+      <Eyebrow>
+        {comments.length === 0
+          ? "No comments"
+          : comments.length === 1
+          ? "1 comment"
+          : `${comments.length} comments`}
+      </Eyebrow>
+
+      {comments.length > 0 && (
+        <ul className="mt-3 mb-1" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {comments.map((c, i) => (
+            <li
+              key={i}
+              className="mb-3 pl-3"
+              style={{ borderLeft: `2px solid ${C.paperLine}` }}
+            >
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span style={{ fontFamily: F.mono, fontSize: 12, color: C.ink }}>
+                  {c.author || c.account}
+                </span>
+                <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.gold }}>
+                  {c.ts}
+                </span>
+                {c.account && c.account === session?.username && (
+                  <span
+                    style={{
+                      fontFamily: F.mono,
+                      fontSize: 9.5,
+                      letterSpacing: "0.16em",
+                      textTransform: "uppercase",
+                      color: C.inkSoft,
+                    }}
+                  >
+                    you
+                  </span>
+                )}
+              </div>
+              <p
+                className="mt-1"
+                style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
+              >
+                {c.body}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-2">
+        <textarea
+          rows={2}
+          value={draft}
+          placeholder="Add a note for the rest of the department."
+          onChange={(e) => setDraft(e.target.value)}
+          style={{
+            width: "100%",
+            fontFamily: F.body,
+            fontSize: 13.5,
+            color: C.ink,
+            background: "rgba(255,255,255,0.7)",
+            border: `1px solid ${C.rule}`,
+            padding: "8px 10px",
+            outline: "none",
+            lineHeight: 1.5,
+            resize: "vertical",
+          }}
+        />
+        <div className="flex items-center gap-3 mt-2">
+          <Btn onClick={submit} disabled={!draft.trim() || busy}>
+            {busy ? "Posting…" : "Comment"}
+          </Btn>
+          {error && (
+            <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+              {error}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One filing, with its thread under it. */
+function LegalFiling({ filing, session, onSubmit }) {
+  return (
+    <Panel style={{ padding: 18 }}>
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>{filing.ts}</span>
+        <span
+          style={{
+            fontFamily: F.mono,
+            fontSize: 9.5,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            padding: "3px 7px",
+            background: LEGAL_STATUS_TONE[filing.status] || C.inkSoft,
+            color: "#FFFFFF",
+          }}
+        >
+          {filing.status || LEGAL_STATUS_DEFAULT}
+        </span>
+        {filing.reference && (
+          <span style={{ fontFamily: F.mono, fontSize: 12, color: C.inkSoft }}>
+            {filing.reference}
+          </span>
+        )}
+        {filing.author && (
+          <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}>
+            filed by {filing.author}
+          </span>
+        )}
+      </div>
+
+      <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink, lineHeight: 1.15 }}>
+        {filing.title}
+      </h3>
+      {filing.party && (
+        <div className="mt-1" style={{ fontFamily: F.mono, fontSize: 12.5, color: C.ledger }}>
+          with {filing.party}
+        </div>
+      )}
+      {filing.detail && (
+        <p
+          className="mt-2"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
+        >
+          {filing.detail}
+        </p>
+      )}
+
+      {/* A filing typed in by hand in the control room has no id, and a comment
+          has nothing to attach to without one. Say so rather than offering a
+          box that would be refused. */}
+      {filing.id ? (
+        <FilingComments filing={filing} session={session} onSubmit={onSubmit} />
+      ) : (
+        <p
+          className="mt-4 pt-3"
+          style={{
+            borderTop: `1px dashed ${C.rule}`,
+            fontFamily: F.body,
+            fontSize: 13,
+            color: C.inkSoft,
+          }}
+        >
+          This one was entered by hand and has no reference of its own, so it
+          cannot take comments. File it again from here if you need a thread on it.
+        </p>
+      )}
+    </Panel>
+  );
+}
+
+/**
+ * The legal department's own page, reached from the staff room.
+ *
+ * One section per kind of document, because a contract and a court filing are
+ * not the same job and a single list of everything would mean reading the whole
+ * thing to find either.
+ */
+function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
+  const [filing, setFiling] = useState(null); // which kind is being filed
+  const [msg, setMsg] = useState("");
+
+  const byKind = useMemo(() => {
+    const map = new Map(LEGAL_KINDS.map((k) => [k, []]));
+    // Newest first, matching the other boards.
+    for (const f of [...(data.legalFilings || [])].reverse()) {
+      if (!f) continue;
+      // A kind that is no longer offered still has to appear somewhere, or the
+      // filing would silently vanish from the page.
+      if (!map.has(f.kind)) map.set(f.kind, []);
+      map.get(f.kind).push(f);
+    }
+    return map;
+  }, [data.legalFilings]);
+
+  const submit = async (payload) => {
+    await onSubmitLegal(payload);
+    setMsg(payload.action === "comment" ? "Comment posted." : "Filed.");
+  };
+
+  const numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+  const kinds = [...byKind.keys()];
+
+  return (
+    <div className="space-y-10">
+      <Btn onClick={onBack}>← Staff room</Btn>
+
+      <section>
+        <SectionHead
+          title="Legal department"
+          note="Everything the department has filed, one section per kind of document. Anyone in the department can comment on any of them; the thread stays with the filing."
+        />
+        {msg && (
+          <p style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}>{msg}</p>
+        )}
+      </section>
+
+      {kinds.map((kind, i) => {
+        const list = byKind.get(kind) || [];
+        return (
+          <section key={kind}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <SectionHead
+                  index={numerals[i] || String(i + 1)}
+                  title={kindPlural(kind)}
+                  note={LEGAL_KIND_BLURBS[kind]}
+                />
+              </div>
+              <div className="shrink-0 pt-1">
+                <Btn variant="solid" onClick={() => { setMsg(""); setFiling(kind); }}>
+                  New {kind.toLowerCase()}
+                </Btn>
+              </div>
+            </div>
+
+            {list.length === 0 ? (
+              <Panel tone="deep" style={{ padding: 20 }}>
+                <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft }}>
+                  Nothing filed under this heading yet.
+                </p>
+              </Panel>
+            ) : (
+              <div className="space-y-3">
+                {list.map((f) => (
+                  <LegalFiling
+                    key={f.id || f.ts + f.title}
+                    filing={f}
+                    session={session}
+                    onSubmit={submit}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      <div>
+        <Btn onClick={onBack}>← Staff room</Btn>
+      </div>
+
+      {filing && (
+        <LegalFilingModal
+          kind={filing}
+          onClose={() => setFiling(null)}
+          onSubmit={submit}
+          session={session}
+        />
+      )}
+    </div>
+  );
+}
+
+function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction, onSubmitLegal }) {
   const [clocking, setClocking] = useState(null); // "in" | "out" | null
   const [filed, setFiled] = useState("");
   const [showTransaction, setShowTransaction] = useState(false);
   const [logged, setLogged] = useState("");
+  // Whether the legal department's page is open instead of the staff room
+  // itself. Local, like the control room's pages: the staff room is in the
+  // address, but which subpage you last opened is not worth a history entry.
+  const [showLegal, setShowLegal] = useState(false);
 
   // The hiring board is executive-only, which is also who may read accounts.
   const {
@@ -2976,8 +3400,40 @@ function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction })
 
   const canSeeHiring = level >= LEVEL.exec;
 
+  // The legal department's page is theirs and the executive's. A staff member
+  // does not get the button, because they would only reach a page the server
+  // has already emptied of filings.
+  const canSeeLegal = level >= LEVEL.legal;
+
+  if (showLegal && canSeeLegal) {
+    return (
+      <LegalDepartment
+        data={data}
+        level={level}
+        session={session}
+        onBack={() => setShowLegal(false)}
+        onSubmitLegal={onSubmitLegal}
+      />
+    );
+  }
+
   return (
     <div className="space-y-10">
+      {canSeeLegal && (
+        <div>
+          <Btn variant="gold" onClick={() => setShowLegal(true)}>
+            Legal Department
+          </Btn>
+          <p
+            className="mt-2"
+            style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft }}
+          >
+            Contracts, court filings and licences, with the department's notes on
+            each.
+          </p>
+        </div>
+      )}
+
       <section>
         <SectionHead
           index={step()}
@@ -3372,6 +3828,7 @@ function RolePicker({ role, onPick, locked, lockedReason, busy }) {
   const fill = {
     ceo: C.gold,
     exec: C.seal,
+    legal: C.night,
     staff: C.ledger,
     client: C.ink,
   };
@@ -3582,7 +4039,7 @@ function Accounts({ session }) {
         <Field
           label="Access"
           value={form.role}
-          options={["member", "client", "staff", "exec"]}
+          options={["member", "client", "staff", "legal", "exec"]}
           onChange={(v) => setForm({ ...form, role: v })}
         />
       </div>
@@ -3958,6 +4415,49 @@ function ControlRoom({ data, save, level, session }) {
             </p>
           )}
         </>
+      ),
+    },
+    {
+      key: "legalFilings",
+      label: "Legal filings",
+      blurb: "What the legal department has filed, and where each one stands.",
+      note: "Correcting a filing here does not touch its comments — those are only added from the Legal Department page in the staff room.",
+      count: (data.legalFilings || []).length,
+      body: (
+        <ListEditor
+          title="Legal filings"
+          items={data.legalFilings || []}
+          blank={{
+            ts: "",
+            kind: LEGAL_KINDS[0],
+            title: "",
+            party: "",
+            reference: "",
+            status: LEGAL_STATUS_DEFAULT,
+            detail: "",
+            author: "",
+            comments: [],
+          }}
+          onChange={(v) => set("legalFilings", v)}
+          fields={[
+            { k: "title", label: "Title", full: true },
+            { k: "kind", label: "Kind", options: LEGAL_KINDS },
+            { k: "status", label: "Status", options: LEGAL_STATUSES },
+            { k: "party", label: "Other party" },
+            { k: "reference", label: "Reference" },
+            { k: "detail", label: "Detail", full: true, rows: 3 },
+          ]}
+          footer={(f) => (
+            <p
+              className="mb-3"
+              style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft }}
+            >
+              {(Array.isArray(f.comments) ? f.comments.length : 0) +
+                " comment(s)"}
+              {f.id ? "" : " · no reference, so it cannot take comments"}
+            </p>
+          )}
+        />
       ),
     },
     {
@@ -4772,6 +5272,16 @@ export default function App() {
     [load]
   );
 
+  // Both filing a document and commenting on one go through here — the route
+  // takes an `action`, the way the shift log does.
+  const submitLegal = useCallback(
+    async (payload) => {
+      await api("/api/legal", { method: "POST", body: JSON.stringify(payload) });
+      await load();
+    },
+    [load]
+  );
+
   const level = LEVEL[role] ?? 0;
 
   const tabs = useMemo(
@@ -4965,6 +5475,7 @@ export default function App() {
             session={session}
             onSubmitShift={submitShift}
             onSubmitTransaction={submitTransaction}
+            onSubmitLegal={submitLegal}
           />
         )}
         {tab === "Control room" && <ControlRoom data={data} level={level} save={save} session={session} />}

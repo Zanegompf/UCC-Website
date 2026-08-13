@@ -236,7 +236,7 @@ place instead of dropping on the overview — `#share`, `#staff-room`,
 | **People** | The same chart as the overview, with the people in it |
 | **Projects** | What is being built, with progress |
 | **Client desk** | The rate card, and the form clients use to ask for something |
-| **Staff room** | Requests, the hiring board, standing orders, shift and transaction logs |
+| **Staff room** | Requests, the hiring board, standing orders, shift and transaction logs, and the way through to the legal department |
 | **Control room** | Everything that edits the record |
 
 **The company chart.** Divisions are a tree, not a list: each one names the
@@ -275,6 +275,37 @@ numbers**, because a deal here is as often "half the takings" or "3 stacks of
 iron" as it is a figure. Fill in either or both. Staff file them, so staff can
 read them.
 
+**The legal department.** A **Legal Department** button sits at the top of the
+staff room, above the incoming requests, and opens a page of its own. Only the
+legal rank and executives see the button — staff would only reach a page the
+server has already emptied.
+
+The page has a section for each kind of document, because a contract and a court
+filing are not the same job and one long list of everything would mean reading it
+all to find either:
+
+| Section | For |
+|---|---|
+| Contracts | Agreements the company has signed or is negotiating |
+| Court filings | Anything lodged with, or served on us by, a court |
+| Licence applications | Applications for the licences the trades need |
+| Legal opinions | Written advice from counsel, and the question it answered |
+| Compliance notices | Notices received or issued about rules and breaches |
+| Company filings | Registrations, amendments, anything filed as the company |
+
+Each section has its own **New …** button, so you never pick the kind from a
+dropdown — the button you pressed is the answer. A filing takes a title, the
+other party, a reference, a status (drafting, filed, in review, agreed, closed,
+withdrawn) and as much detail as you want to write.
+
+**Anyone in the department can comment on any filing**, and the thread stays
+attached to the document. That is the point of keeping it here rather than in
+Discord: six months later nobody can find the channel message that explained why
+a clause reads the way it does. Filings and comments never post to Discord.
+
+Executives can correct a filing in Control room → Legal filings. That page does
+not touch the comments — those are only added from the department's own page.
+
 **Hiring.** Anyone with an account can apply from the front page, including a
 plain member — the whole point is that they do not work here yet. The account
 requirement is what stops it being an anonymous spam form. Applications are
@@ -307,8 +338,8 @@ as.
 
 ## How permissions actually work
 
-There are six levels: **visitor, member, client, staff, executive, chief
-executive**.
+There are seven levels: **visitor, member, client, staff, legal, executive,
+chief executive**.
 
 **Member** is what anyone gets when they create their own account from the
 sign-in box. They can sign in, but they see exactly what a visitor sees. That
@@ -327,20 +358,28 @@ balance sheet, the internal staff notes, the client rate card, the shift log or
 the hidden projects — not hidden with CSS, not present at all. Opening
 developer tools shows them nothing extra.
 
-| | Visitor | Member | Client | Staff | Exec | CEO |
-|---|---|---|---|---|---|---|
-| Mission, share price, company chart, public projects | yes | yes | yes | yes | yes | yes |
-| Revenue, expenses, totals | yes | yes | yes | yes | yes | yes |
-| Change own password | — | yes | yes | yes | yes | yes |
-| Apply for a job | — | yes | yes | yes | yes | yes |
-| Rate card and the client desk | — | — | yes | yes | yes | yes |
-| Client-only projects, the full price table | — | — | yes | yes | yes | yes |
-| Balance sheet, internal staff notes | — | — | — | yes | yes | yes |
-| Incoming client requests | — | — | — | yes | yes | yes |
-| Shift log, transaction log, clocking in | — | — | — | yes | yes | yes |
-| Job applications and the hiring board | — | — | — | — | yes | yes |
-| Editing anything, accounts, webhooks | — | — | — | — | yes | yes |
-| Editing the company chart in place | — | — | — | — | — | yes |
+| | Visitor | Member | Client | Staff | Legal | Exec | CEO |
+|---|---|---|---|---|---|---|---|
+| Mission, share price, company chart, public projects | yes | yes | yes | yes | yes | yes | yes |
+| Revenue, expenses, totals | yes | yes | yes | yes | yes | yes | yes |
+| Change own password | — | yes | yes | yes | yes | yes | yes |
+| Apply for a job | — | yes | yes | yes | yes | yes | yes |
+| Rate card and the client desk | — | — | yes | yes | yes | yes | yes |
+| Client-only projects, the full price table | — | — | yes | yes | yes | yes | yes |
+| Balance sheet, internal staff notes | — | — | — | yes | yes | yes | yes |
+| Incoming client requests | — | — | — | yes | yes | yes | yes |
+| Shift log, transaction log, clocking in | — | — | — | yes | yes | yes | yes |
+| Legal filings, and commenting on them | — | — | — | — | yes | yes | yes |
+| Job applications and the hiring board | — | — | — | — | — | yes | yes |
+| Editing anything, accounts, webhooks | — | — | — | — | — | yes | yes |
+| Editing the company chart in place | — | — | — | — | — | — | yes |
+| Seating or unseating a chief executive | — | — | — | — | — | first only | yes |
+
+**Legal** is a department rather than a promotion. It sees everything a staff
+member sees, plus the legal department's filings, which it can add to and comment
+on. It sees nothing an executive sees — no accounts, no webhooks, no hiring
+board, no control room. Give it to whoever does the company's legal work; it does
+not count as an executive for the "last executive" guard.
 
 **Chief executive** sees exactly what an executive sees. It adds two things:
 unlocking the People chart to edit it in place, and control of its own seat.
@@ -390,10 +429,11 @@ rather than only changing the password.
 ## Limits worth knowing
 
 **The logs are rolling windows, not archives.** Client requests, shifts,
-transactions and applications keep the most recent **200** each. Past that the
-oldest fall off and are gone, so if a shift matters for payroll beyond that,
-write the total down somewhere else. Notices keep the most recent **60**, and
-the price chart the most recent **120** price points.
+transactions, applications and legal filings keep the most recent **200** each,
+and a filing keeps its most recent **50** comments. Past that the oldest fall off
+and are gone, so if a shift matters for payroll beyond that, write the total down
+somewhere else. Notices keep the most recent **60**, and the price chart the most
+recent **120** price points.
 
 The staff room shows the **last 40** shifts and transactions to keep the page
 readable. The rest are still on the record — Control room → Shift log and
@@ -410,6 +450,7 @@ tight enough to get in the way of ordinary use, but a script gets stopped:
 | Client desk requests | 10 / hour |
 | Shifts and transactions | 30 / hour each |
 | Job applications | 5 / hour |
+| Legal filings and comments | 40 / hour combined |
 | Posting to Discord | 20 / hour |
 
 Sign-in and password changes count **failures only**, so using the site
@@ -465,6 +506,13 @@ the site again.
 
 **No hammer on the People tab** — that is chief-executive only. An executive
 edits the chart through Control room → Divisions and Staff instead.
+
+**No Legal Department button in the staff room** — that account is Staff, not
+Legal. Change it in Control room → Accounts. Executives see the button too.
+
+**A filing will not take comments** — it was typed in by hand in the control
+room, so it has no reference of its own for a thread to attach to. File it from
+the Legal Department page instead and the comments will work.
 
 **"Only the chief executive can change who holds that seat"** — an executive
 can appoint the first CEO, but not a second one, and cannot unseat one. Sign in

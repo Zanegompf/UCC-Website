@@ -52,6 +52,8 @@ app/
     shifts/         POST clock in / clock out (staff+), body.action "in" | "out"
     transactions/   POST a deal done off the chest shops (staff+)
     applications/   POST job application (any signed-in account, incl. member)
+    legal/          POST legal filing or comment (legal+), body.action
+                    "file" | "comment"
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
@@ -60,6 +62,9 @@ lib/
   seed.js           SEED record + ensureData() first-run/migration
   auth.js           hash, verify, session cookie
   roles.js          LEVEL, ASSIGNABLE_ROLES, filterData(), effectiveRole()
+  legal.js          LEGAL_KINDS/_BLURBS/_PLURALS, LEGAL_STATUSES, filingId().
+                    Constants only, so unlike HOOK_EVENTS it is imported by both
+                    the route and Site.jsx rather than mirrored
   guard.js          rate limits, client IP, CSRF check, body caps, safeEqual
   discord.js        webhook fan-out. Several hooks, each routed by `events`
 bot/
@@ -73,9 +78,9 @@ process.** The UI mirrors the decision; it never makes it.
 
 - `filterData(data, level)` strips: `users` and `codes` always; the balance
   sheet, internal staff notes, client requests and the shift log below staff;
-  the rate card below client; the Discord webhooks **and job applications**
-  below exec; plus projects and announcements whose `visibility` / `audience`
-  outranks the viewer.
+  the legal department's filings below legal; the rate card below client; the
+  Discord webhooks **and job applications** below exec; plus projects and
+  announcements whose `visibility` / `audience` outranks the viewer.
 - `jobs` is deliberately **public**: the application form on the front page has
   to render its dropdown for people who do not work here yet.
 - Below exec it **replaces `discord` wholesale** with `{channel}` rather than
@@ -107,6 +112,7 @@ whether the request gets that far at all. It is not a substitute for the above.
 | shift log | 30 / hour per account | all |
 | transactions | 30 / hour per account | all |
 | applications | 5 / hour per account | all |
+| legal filings and comments | 40 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
 | bot key | 10 / 10 min per IP | wrong keys only |
 
@@ -131,7 +137,15 @@ if the site ever moves off Vercel.
 
 ## Roles
 
-`public: 0, member: 0, client: 1, staff: 2, exec: 3, ceo: 4`
+`public: 0, member: 0, client: 1, staff: 2, legal: 3, exec: 4, ceo: 5`
+
+**`legal` was inserted between staff and exec, which renumbered exec and ceo.**
+That was safe because nothing anywhere compares a level to a literal — every
+gate is written against a `LEVEL.*` symbol, and the record only ever stores role
+*names* (`users[].role`, `visibility`, `audience`), never a number. Keep it that
+way: a hardcoded `level >= 3` would silently change meaning the next time a rank
+is added. `level > 0` in `Site.jsx` is the one numeric comparison, and it only
+asks "signed in with some access".
 
 `ceo` sees exactly what an executive sees — every `filterData` gate is
 `>= LEVEL.exec`, which it clears — and adds one thing: unlocking the people
@@ -147,6 +161,12 @@ because the account may be created after this shipped.
 The "last executive" guard counts anyone at `exec` **or above**, so a company
 whose only privileged account is the chief executive is not treated as locked
 out of itself.
+
+`legal` is a **department, not a promotion**. It sees everything a staff member
+sees plus the legal filings, and nothing an executive sees — no webhooks, no
+hiring board, no control room, no accounts. It deliberately does **not** count
+towards `runsTheCompany` in `api/users`, so a company whose only privileged
+accounts are legal is still treated as needing an executive.
 
 `member` is a signed-in account with visitor-level sight. Self-registration
 creates one. This is the safe default: making an account should not hand a
@@ -175,6 +195,8 @@ requests[]{ts,from,contact,type,detail,status,account}
 shifts[]{ts,username,occupation,timeIn,timeOut,output,account}  <- empty timeOut = open
 transactions[]{ts,username,type,counterparty,amount,materials,detail,account}
 applications[]{ts,username,discord,role,wage,experience,references,notes,status,account}
+legalFilings[]{id,ts,kind,title,party,reference,status,detail,author,account,
+               comments[]{ts,author,body,account}}   <- id is load-bearing; see below
 jobs[]{name,category}                              <- public; the dropdown reads it
 discord{webhook,channel,guild,hooks[]{name,url,channel,events}}
 users[]{username,role,passwordHash,added,self}     <- never sent to a client
@@ -399,6 +421,44 @@ because the server changes it and that should not need a deploy. `ensureData()`
 re-seeds it when the list is missing **or empty**, so an old record does not
 leave the form with nothing to pick.
 
+## The legal department
+
+A subpage of the **staff room**, not a tab of its own — reached by a button above
+section I, and only rendered for `legal` and above. It is local state
+(`showLegal`), like the control room's pages: the staff room is in the hash, but
+which subpage you last opened is not worth a history entry, and a refresh
+returning to the staff room is the right default.
+
+**One section per kind of document.** `LEGAL_KINDS` in `lib/legal.js` drives the
+sections, the pickers and the "New …" buttons, so adding a kind there adds all
+three. A filing whose `kind` is no longer in the list still gets a section of its
+own rather than vanishing — same instinct as "Elsewhere on the books" on the
+People tab.
+
+The kind is **not a field on the filing form**: each kind has its own button, so
+which one you pressed is the answer. Offering it twice only lets the two disagree.
+
+**`id` is load-bearing.** Comments attach to a filing by `id`, never by index.
+The control room's `ListEditor` can reorder and delete rows and the whole record
+is read-modify-written as one object, so a comment addressed by position could
+end up under a different document entirely. `filingId()` mints one; a filing
+typed in by hand in the control room has none, and the page says so instead of
+offering a comment box the route would refuse with a 404.
+
+**Comments live on the filing, not in Discord.** That is the whole point — six
+months on, nobody can find the channel message explaining why a clause reads the
+way it does. Filings and comments therefore post nowhere; the rule that only a
+notice reaches a webhook holds here too.
+
+Reading is `>= LEVEL.legal`, which **executives clear**. Somebody has to be able
+to read the files when counsel is offline, and an exec already sees everything
+else. Staff do not: a filing names the other party to a dispute and the thread
+under it is the department thinking aloud.
+
+Two caps, not one: 200 filings on the record like the other logs, and **50
+comments per filing**, so one long argument cannot grow the blob that every page
+load reads.
+
 ## Discord posting
 
 **Posting a notice is the only thing on the whole site that reaches a webhook.**
@@ -614,10 +674,10 @@ Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
 - Usernames are first-come; there is no verification that a username matches the
   Minecraft account.
 - No audit log of privileged actions.
-- `requests`, `announcements`, `shifts`, `transactions` and `applications` are
-  capped (200 / 60 / 200 / 200 / 200) by slicing on write, and `stock.history` at
-  120. These are rolling windows, not archives — past the cap the oldest fall off
-  and are gone.
+- `requests`, `announcements`, `shifts`, `transactions`, `applications` and
+  `legalFilings` are capped (200 / 60 / 200 / 200 / 200 / 200) by slicing on
+  write, `comments` at 50 per filing, and `stock.history` at 120. These are
+  rolling windows, not archives — past the cap the oldest fall off and are gone.
 - The staff room renders only the most recent 40 shifts and transactions. The
   rest are on the record and show in the control room; this is a page-length
   decision, not a cap.
