@@ -7,8 +7,9 @@ import {
   LEGAL_KINDS,
   LEGAL_STATUSES,
   LEGAL_STATUS_DEFAULT,
-  filingId,
 } from "@/lib/legal";
+import { entryId } from "@/lib/ids";
+import { archiveEntry, MAX_DELETED } from "@/lib/archive";
 import {
   rateLimit,
   tooMany,
@@ -114,6 +115,52 @@ export async function POST(req) {
     );
   }
 
+  /* ------------------------------- deleting ------------------------------ */
+
+  /**
+   * Taking a filing off the record entirely. Chief executive only.
+   *
+   * The outer gate above lets the whole department in, so this needs its own
+   * check: everyone in legal can file and comment, but a filing and the thread
+   * under it are the only copy, and unlike every other edit here retyping does
+   * not bring them back.
+   *
+   * Note this is not the only way a filing can be removed — `legalFilings` is in
+   * EDITABLE, so an executive can still delete a row in the control room. This
+   * gates the department's own page, where the filings are actually read.
+   */
+  if (body.action === "delete") {
+    if (levelOf(effectiveRole(stored, session)) < LEVEL.ceo) {
+      return bad("Only the chief executive can delete a filing.", 403);
+    }
+
+    const id = String(body.id || "").trim();
+    if (!id) return bad("Which filing should go?");
+
+    const at = filings.findIndex((f) => f && f.id === id);
+    if (at < 0) {
+      return bad("That filing is no longer on the record.", 404);
+    }
+
+    const next = [...filings];
+    const [gone] = next.splice(at, 1);
+
+    data.legalFilings = next;
+    // Keep it, the same as a filing removed through a page save. This is the one
+    // deletion the archive cannot notice by diffing, because it never goes
+    // through PUT /api/data.
+    data.deleted = [
+      ...(Array.isArray(data.deleted) ? data.deleted : []),
+      archiveEntry("legalFilings", gone, session.username),
+    ].slice(-MAX_DELETED);
+    await writeData(data);
+
+    return NextResponse.json(
+      { ok: true },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   /* -------------------------------- filing ------------------------------- */
 
   const kind = String(body.kind || "").trim();
@@ -131,7 +178,7 @@ export async function POST(req) {
     : LEGAL_STATUS_DEFAULT;
 
   const entry = {
-    id: filingId(),
+    id: entryId(),
     ts: new Date().toISOString().slice(0, 10),
     kind,
     title,

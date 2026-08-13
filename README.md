@@ -303,8 +303,17 @@ attached to the document. That is the point of keeping it here rather than in
 Discord: six months later nobody can find the channel message that explained why
 a clause reads the way it does. Filings and comments never post to Discord.
 
+**Only the chief executive can delete a filing** from the department's page. The
+button asks twice — it turns into "Delete this filing? Yes / Keep" — because the
+filing and every comment on it go for good, and nothing else on that page is
+irreversible. A filing typed in by hand in the control room has no Delete button;
+remove that one in the control room instead.
+
 Executives can correct a filing in Control room → Legal filings. That page does
-not touch the comments — those are only added from the department's own page.
+not touch the comments — those are only added from the department's own page. It
+does still have a Remove button on each row, so an executive can take a filing
+off the record that way. If you want deletion to be the chief executive's alone,
+that is the thing to change.
 
 **Hiring.** Anyone with an account can apply from the front page, including a
 plain member — the whole point is that they do not work here yet. The account
@@ -324,9 +333,25 @@ changes it and that should not need a deploy.
 the page. Everything past them is **one page each**, reached from the cards
 under "The rest of the record" — company details, divisions, staff, projects,
 rate card, financials, client requests, transactions, shift log, applications,
-job list and accounts. They used to be stacked in one column, so reaching the
-job list meant scrolling past the whole company. Everything on those pages
-saves the moment you type it.
+legal filings, job list, deleted records and accounts. They used to be stacked in
+one column, so reaching the job list meant scrolling past the whole company.
+Everything on those pages saves the moment you type it.
+
+**Deleted records.** Four lists remember what was removed from them: **job
+applications, legal filings, client requests and projects**. Delete one and what
+it said is kept on the Deleted records page, newest first, with who deleted it
+and when. It exists because a mis-click on Remove used to be final — the save
+overwrote the list and nothing on the record remembered.
+
+It is **read-only**: the live record really is gone, this is the copy kept in
+case it should not have been, to be read and retyped. It holds the last **200**
+deletions, then the oldest fall off, so it is a safety net for a recent mistake
+rather than a permanent archive.
+
+Everything else is still deleted for good — staff, divisions, the rate card, the
+job list, notices, shifts, transactions and the monthly figures. Those change
+constantly and keeping every version would bloat the record that every visitor
+loads.
 
 **Settings** (the cog in the masthead) holds display preferences saved on that
 device only — full figures instead of $1.68M, and which tab a plain visit opens
@@ -371,8 +396,10 @@ developer tools shows them nothing extra.
 | Shift log, transaction log, clocking in | — | — | — | yes | yes | yes | yes |
 | Legal filings, and commenting on them | — | — | — | — | yes | yes | yes |
 | Job applications and the hiring board | — | — | — | — | — | yes | yes |
+| Deleted records | — | — | — | — | — | yes | yes |
 | Editing anything, accounts, webhooks | — | — | — | — | — | yes | yes |
 | Editing the company chart in place | — | — | — | — | — | — | yes |
+| Deleting a legal filing from the department's page | — | — | — | — | — | — | yes |
 | Seating or unseating a chief executive | — | — | — | — | — | first only | yes |
 
 **Legal** is a department rather than a promotion. It sees everything a staff
@@ -381,8 +408,9 @@ on. It sees nothing an executive sees — no accounts, no webhooks, no hiring
 board, no control room. Give it to whoever does the company's legal work; it does
 not count as an executive for the "last executive" guard.
 
-**Chief executive** sees exactly what an executive sees. It adds two things:
-unlocking the People chart to edit it in place, and control of its own seat.
+**Chief executive** sees exactly what an executive sees. It adds three things:
+unlocking the People chart to edit it in place, deleting a legal filing, and
+control of its own seat.
 
 **Only a chief executive may seat or unseat another.** The one exception is
 getting started: where the company has no chief executive at all, an executive
@@ -429,8 +457,8 @@ rather than only changing the password.
 ## Limits worth knowing
 
 **The logs are rolling windows, not archives.** Client requests, shifts,
-transactions, applications and legal filings keep the most recent **200** each,
-and a filing keeps its most recent **50** comments. Past that the oldest fall off
+transactions, applications, legal filings and deleted records keep the most recent
+**200** each, and a filing keeps its most recent **50** comments. Past that the oldest fall off
 and are gone, so if a shift matters for payroll beyond that, write the total down
 somewhere else. Notices keep the most recent **60**, and the price chart the most
 recent **120** price points.
@@ -470,6 +498,9 @@ Minecraft account it claims to be, and there is no log of who changed what.
 
 ## Housekeeping
 
+- Check Deleted records if something has gone missing from an application list,
+  the legal filings, the client desk or the projects. It keeps the last 200
+  deletions, so a mis-click is recoverable by retyping — but only for a while.
 - **When someone leaves the company, delete their account.** That is the only
   thing that actually removes their access. Changing what a page says does not,
   and neither does demoting them if they still know the password.
@@ -512,7 +543,12 @@ Legal. Change it in Control room → Accounts. Executives see the button too.
 
 **A filing will not take comments** — it was typed in by hand in the control
 room, so it has no reference of its own for a thread to attach to. File it from
-the Legal Department page instead and the comments will work.
+the Legal Department page instead and the comments will work. The same filing has
+no Delete button, for the same reason.
+
+**"Only the chief executive can delete a filing"** — an executive cannot delete
+from the Legal Department page. Either sign in as the chief executive, or remove
+the row in Control room → Legal filings.
 
 **"Only the chief executive can change who holds that seat"** — an executive
 can appoint the first CEO, but not a second one, and cannot unseat one. Sign in

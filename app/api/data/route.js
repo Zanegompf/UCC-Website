@@ -4,6 +4,7 @@ import { writeData } from "@/lib/store";
 import { getSession } from "@/lib/auth";
 import { filterData, levelOf, LEVEL, effectiveRole } from "@/lib/roles";
 import { crossSite, refuseCrossSite, readJson, refuseBody } from "@/lib/guard";
+import { archiveRemoved, MAX_DELETED } from "@/lib/archive";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,8 @@ const CAPS = {
   transactions: 200,
   applications: 200,
   legalFilings: 200,
+  // Not in EDITABLE, but the loop below runs over `next`, so this still applies.
+  deleted: MAX_DELETED,
 };
 
 export async function GET() {
@@ -99,6 +102,20 @@ export async function PUT(req) {
   // Accounts are managed only through /api/users, never through a page save.
   next.users = current.users;
   if ("codes" in current) next.codes = current.codes;
+
+  /**
+   * Keep whatever this save is about to drop.
+   *
+   * `deleted` is deliberately NOT in EDITABLE. If it were, every save would
+   * overwrite the archive with the browser's copy of it, and any row added since
+   * that tab last loaded would be lost — including, on a slow connection, the
+   * row this very save is adding. Server-managed only, so it can grow here and
+   * shrink at the cap and nowhere else.
+   */
+  next.deleted = [
+    ...(Array.isArray(current.deleted) ? current.deleted : []),
+    ...archiveRemoved(current, incoming, session.username),
+  ];
 
   for (const [key, cap] of Object.entries(CAPS)) {
     if (Array.isArray(next[key]) && next[key].length > cap) {

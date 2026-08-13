@@ -53,7 +53,7 @@ app/
     transactions/   POST a deal done off the chest shops (staff+)
     applications/   POST job application (any signed-in account, incl. member)
     legal/          POST legal filing or comment (legal+), body.action
-                    "file" | "comment"
+                    "file" | "comment" | "delete" — delete is ceo only
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
@@ -62,9 +62,13 @@ lib/
   seed.js           SEED record + ensureData() first-run/migration
   auth.js           hash, verify, session cookie
   roles.js          LEVEL, ASSIGNABLE_ROLES, filterData(), effectiveRole()
-  legal.js          LEGAL_KINDS/_BLURBS/_PLURALS, LEGAL_STATUSES, filingId().
+  legal.js          LEGAL_KINDS/_BLURBS/_PLURALS, LEGAL_STATUSES, kindPlural().
                     Constants only, so unlike HOOK_EVENTS it is imported by both
                     the route and Site.jsx rather than mirrored
+  ids.js            entryId(), the one id generator. Its own module so lib/legal
+                    does not have to import lib/archive to borrow it
+  archive.js        ARCHIVED_LISTS, withIds(), archiveRemoved() — what keeps a
+                    removed row on `deleted`
   guard.js          rate limits, client IP, CSRF check, body caps, safeEqual
   discord.js        webhook fan-out. Several hooks, each routed by `events`
 bot/
@@ -96,7 +100,13 @@ process.** The UI mirrors the decision; it never makes it.
 If you add a route that gates on role, use `effectiveRole`, never
 `session.role`. If you add a field to the record, decide its visibility in
 `filterData` **and** add it to `EDITABLE` in `app/api/data/route.js` in the same
-commit — miss the second and the field silently vanishes on every save.
+commit — miss the second and the field silently vanishes on every save. The one
+deliberate exception is `deleted`, which is server-managed and is carried over
+like `users`; see "Deleted records".
+
+`applications`, `legalFilings`, `requests` and `projects` carry an `id` on every
+row, because the archive spots a deletion by an id going missing. Anything that
+adds a row to one of those four must mint one with `entryId()`.
 
 ## Request-side hardening
 
@@ -148,8 +158,8 @@ is added. `level > 0` in `Site.jsx` is the one numeric comparison, and it only
 asks "signed in with some access".
 
 `ceo` sees exactly what an executive sees — every `filterData` gate is
-`>= LEVEL.exec`, which it clears — and adds one thing: unlocking the people
-chart to edit it in place.
+`>= LEVEL.exec`, which it clears — and adds two things: unlocking the people
+chart to edit it in place, and deleting a legal filing.
 
 **Only a chief executive may seat or unseat another**, on PATCH, DELETE and the
 wholesale POST. The one exception is bootstrapping: where the company has no
@@ -197,6 +207,7 @@ transactions[]{ts,username,type,counterparty,amount,materials,detail,account}
 applications[]{ts,username,discord,role,wage,experience,references,notes,status,account}
 legalFilings[]{id,ts,kind,title,party,reference,status,detail,author,account,
                comments[]{ts,author,body,account}}   <- id is load-bearing; see below
+deleted[]{id,kind,label,ts,by,entry{...}}   <- server-managed, NOT in EDITABLE
 jobs[]{name,category}                              <- public; the dropdown reads it
 discord{webhook,channel,guild,hooks[]{name,url,channel,events}}
 users[]{username,role,passwordHash,added,self}     <- never sent to a client
@@ -459,6 +470,73 @@ Two caps, not one: 200 filings on the record like the other logs, and **50
 comments per filing**, so one long argument cannot grow the blob that every page
 load reads.
 
+### Deleting a filing
+
+`action: "delete"` is **chief executive only**, checked inside the branch rather
+than at the top of the route — the outer gate admits the whole department, and
+everyone in it can file and comment. Deleting is the one action here that
+retyping cannot undo, and the thread goes with the document.
+
+The button **arms first** (`Delete` → `Delete this filing? Yes / Keep`), same
+bargain as the chart's two removals, and for the same reason. Do not swap it for
+`window.confirm`.
+
+It addresses by `id`, so a filing typed in by hand has no Delete button — that
+one comes off the record in the control room instead.
+
+**This is not the only way a filing can be removed.** `legalFilings` is in
+`EDITABLE`, so an executive can still delete a row on the control room's Legal
+filings page. The ceo gate covers the department's own page, where filings are
+actually read. If deletion should be genuinely ceo-exclusive, `legalFilings` has
+to come out of `EDITABLE` — which also takes away the exec's ability to correct a
+filing, so it is a trade rather than a fix.
+
+## Deleted records
+
+Removing a row used to be final: the list editor spliced it out, the save
+overwrote the list, and nothing remembered. Four lists now keep what was removed
+on **`deleted`**, read from Control room → Deleted records.
+
+`ARCHIVED_LISTS` in `lib/archive.js` names them — `applications`,
+`legalFilings`, `requests`, `projects`. Only four on purpose: the record is one
+blob every page load reads, and archiving `shifts` and `transactions`, which turn
+over fastest and matter least individually, would grow it for little gain.
+
+**The archive matches by `id`, never by value.** This is the whole design
+constraint. The control room saves on **every keystroke**, so a value comparison
+would read the half-typed state of a field as a deletion and file a copy per
+character. An id survives an edit and disappears on a removal, which is exactly
+the distinction needed. Verified: twelve consecutive keystroke-saves renaming a
+project archive nothing.
+
+That is why `ensureData()` **writes** after minting ids, unlike every other
+back-fill in it. Ids recomputed per read would differ each time and the next save
+would look like the whole list had been replaced. The write is wrapped in a
+`try`/`catch` — with a read-only Upstash token it throws, and a failed migration
+must not take the site down; it retries next load, and `archiveRemoved` skips
+those lists in the meantime.
+
+Two skips in `archiveRemoved`, both load-bearing:
+
+- a list the save does not mention at all is not a deletion of everything in it;
+- a list whose incoming rows carry **no** ids is a browser holding a pre-id copy.
+  Trusting it would archive the entire list on the first save from a stale tab.
+
+**`deleted` is not in `EDITABLE`**, which is the exception to the usual rule that
+a new field goes in both places. It is server-managed: `PUT /api/data` appends
+what the save dropped, `/api/legal`'s delete appends the filing it removed — the
+one deletion no diff can see, since it never goes through PUT — and the cap
+trims. Putting it in `EDITABLE` would let every save overwrite the archive with
+the browser's copy, losing anything added since that tab loaded. Confirmed: a
+save carrying a forged `deleted` is ignored.
+
+It is stripped **below exec**, not per kind. It holds removed applications and
+legal filings, so it takes the tightest gate of anything inside it.
+
+The page is **read-only**. There is no restore: putting a row back raises
+questions about position, id collision and the cap that nobody has needed
+answered yet. Capped at 200 like the other logs.
+
 ## Discord posting
 
 **Posting a notice is the only thing on the whole site that reaches a webhook.**
@@ -674,10 +752,15 @@ Avoid marketing adjectives, avoid exclamation marks, avoid "seamless" /
 - Usernames are first-come; there is no verification that a username matches the
   Minecraft account.
 - No audit log of privileged actions.
-- `requests`, `announcements`, `shifts`, `transactions`, `applications` and
-  `legalFilings` are capped (200 / 60 / 200 / 200 / 200 / 200) by slicing on
-  write, `comments` at 50 per filing, and `stock.history` at 120. These are
-  rolling windows, not archives — past the cap the oldest fall off and are gone.
+- `requests`, `announcements`, `shifts`, `transactions`, `applications`,
+  `legalFilings` and `deleted` are capped (200 / 60 / 200 / 200 / 200 / 200 /
+  200) by slicing on write, `comments` at 50 per filing, and `stock.history` at
+  120. These are rolling windows, not archives — past the cap the oldest fall off
+  and are gone. That applies to `deleted` too: it is a safety net for a recent
+  mis-click, not a permanent audit trail.
+- Deleting a row from `staff`, `divisions`, `services`, `jobs`, `shifts`,
+  `transactions`, `announcements` or `financials.periods` is still final —
+  only the four in `ARCHIVED_LISTS` are kept.
 - The staff room renders only the most recent 40 shifts and transactions. The
   rest are on the record and show in the control room; this is a page-length
   decision, not a cap.

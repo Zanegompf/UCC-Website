@@ -19,6 +19,7 @@ import {
   LEGAL_STATUS_DEFAULT,
   kindPlural,
 } from "@/lib/legal";
+import { ARCHIVED_LISTS } from "@/lib/archive";
 
 /* ------------------------------------------------------------------ *
  * The United Commerce Corporation — DemocracyCraft corporate site
@@ -3182,7 +3183,29 @@ function FilingComments({ filing, session, onSubmit }) {
 }
 
 /** One filing, with its thread under it. */
-function LegalFiling({ filing, session, onSubmit }) {
+function LegalFiling({ filing, session, onSubmit, canDelete }) {
+  // Deleting is the one action here that retyping cannot undo, so it arms first
+  // rather than firing on the click — the same bargain the company chart makes
+  // with its two removals. Not window.confirm: a native dialog blocks the page
+  // and is the wrong register for this site.
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "delete", id: filing.id });
+      // No need to unset anything — the filing is gone and so is this component.
+    } catch (e) {
+      setError(e.message);
+      setArmed(false);
+      setBusy(false);
+    }
+  };
+
   return (
     <Panel style={{ padding: 18 }}>
       <div className="flex flex-wrap items-center gap-3 mb-2">
@@ -3210,7 +3233,46 @@ function LegalFiling({ filing, session, onSubmit }) {
             filed by {filing.author}
           </span>
         )}
+
+        {/* A filing entered by hand in the control room has no id of its own, so
+            there is nothing for the route to address. Those come off the record
+            in the control room instead. */}
+        {canDelete && filing.id && (
+          <span className="ml-auto flex items-center gap-2">
+            {armed ? (
+              <>
+                <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.seal }}>
+                  Delete this filing?
+                </span>
+                <OrgAction
+                  tone="seal"
+                  onClick={remove}
+                  title="Yes, take it off the record"
+                >
+                  {busy ? "…" : "Yes"}
+                </OrgAction>
+                <OrgAction onClick={() => setArmed(false)} title="Keep it">
+                  Keep
+                </OrgAction>
+              </>
+            ) : (
+              <OrgAction
+                tone="seal"
+                onClick={() => setArmed(true)}
+                title="Delete this filing and its comments"
+              >
+                Delete
+              </OrgAction>
+            )}
+          </span>
+        )}
       </div>
+
+      {error && (
+        <p className="mb-2" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+          {error}
+        </p>
+      )}
 
       <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink, lineHeight: 1.15 }}>
         {filing.title}
@@ -3276,9 +3338,19 @@ function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
     return map;
   }, [data.legalFilings]);
 
+  // Only the chief executive may take a filing off the record. The server
+  // enforces this too — the page just decides whether to offer it.
+  const canDelete = level >= LEVEL.ceo;
+
+  const SENT = {
+    comment: "Comment posted.",
+    delete: "Filing deleted.",
+    file: "Filed.",
+  };
+
   const submit = async (payload) => {
     await onSubmitLegal(payload);
-    setMsg(payload.action === "comment" ? "Comment posted." : "Filed.");
+    setMsg(SENT[payload.action] || "Saved.");
   };
 
   const numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
@@ -3291,7 +3363,11 @@ function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
       <section>
         <SectionHead
           title="Legal department"
-          note="Everything the department has filed, one section per kind of document. Anyone in the department can comment on any of them; the thread stays with the filing."
+          note={
+            canDelete
+              ? "Everything the department has filed, one section per kind of document. Anyone in the department can comment on any of them; the thread stays with the filing. You can also delete a filing — it and its comments go for good."
+              : "Everything the department has filed, one section per kind of document. Anyone in the department can comment on any of them; the thread stays with the filing."
+          }
         />
         {msg && (
           <p style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}>{msg}</p>
@@ -3331,6 +3407,7 @@ function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
                     filing={f}
                     session={session}
                     onSubmit={submit}
+                    canDelete={canDelete}
                   />
                 ))}
               </div>
@@ -4070,6 +4147,156 @@ function Accounts({ session }) {
   );
 }
 
+/**
+ * What a removed row actually said.
+ *
+ * The four archived lists have different fields, and a generic key/value dump
+ * would read like a debugging aid. Each kind names the two or three fields worth
+ * seeing at a glance, and the rest is shown underneath as the detail.
+ */
+const DELETED_SUMMARY = {
+  applications: (e) => ({
+    title: [e.username, e.role].filter(Boolean).join(" — "),
+    meta: [e.status, e.wage && "asking " + e.wage, e.discord].filter(Boolean),
+    detail: e.experience || e.notes,
+  }),
+  legalFilings: (e) => ({
+    title: e.title,
+    meta: [e.kind, e.status, e.party && "with " + e.party, e.reference].filter(Boolean),
+    detail: e.detail,
+  }),
+  requests: (e) => ({
+    title: [e.from, e.type].filter(Boolean).join(" — "),
+    meta: [e.status, e.contact].filter(Boolean),
+    detail: e.detail,
+  }),
+  projects: (e) => ({
+    title: e.name,
+    meta: [e.status, e.visibility && e.visibility + " only", e.target].filter(Boolean),
+    detail: e.summary,
+  }),
+};
+
+function DeletedRow({ row }) {
+  const entry = row.entry || {};
+  const shape = DELETED_SUMMARY[row.kind];
+  const { title, meta, detail } = shape
+    ? shape(entry)
+    : { title: entry.name || entry.title || "(no title)", meta: [], detail: "" };
+
+  return (
+    <Panel style={{ padding: 18 }}>
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>{row.ts}</span>
+        <span
+          style={{
+            fontFamily: F.mono,
+            fontSize: 9.5,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            padding: "3px 7px",
+            background: C.seal,
+            color: "#FFFFFF",
+          }}
+        >
+          Deleted
+        </span>
+        {row.by && (
+          <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}>
+            by {row.by}
+          </span>
+        )}
+        {entry.ts && (
+          <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}>
+            originally filed {entry.ts}
+          </span>
+        )}
+      </div>
+
+      <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink, lineHeight: 1.15 }}>
+        {title || "(no title)"}
+      </h3>
+      {meta.length > 0 && (
+        <div className="mt-1" style={{ fontFamily: F.mono, fontSize: 12, color: C.inkSoft }}>
+          {meta.join(" · ")}
+        </div>
+      )}
+      {detail && (
+        <p
+          className="mt-2"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
+        >
+          {detail}
+        </p>
+      )}
+      {row.kind === "legalFilings" &&
+        Array.isArray(entry.comments) &&
+        entry.comments.length > 0 && (
+          <p
+            className="mt-2"
+            style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}
+          >
+            {entry.comments.length === 1
+              ? "1 comment went with it"
+              : entry.comments.length + " comments went with it"}
+          </p>
+        )}
+    </Panel>
+  );
+}
+
+/** Everything that has been removed from the four lists that keep their history. */
+function DeletedRecords({ data }) {
+  const rows = [...(data.deleted || [])].reverse();
+
+  const byKind = useMemo(() => {
+    const map = new Map(Object.keys(ARCHIVED_LISTS).map((k) => [k, []]));
+    for (const row of rows) {
+      if (!row) continue;
+      if (!map.has(row.kind)) map.set(row.kind, []);
+      map.get(row.kind).push(row);
+    }
+    return map;
+  }, [data.deleted]);
+
+  if (!rows.length) {
+    return (
+      <Panel tone="deep" style={{ padding: 20 }}>
+        <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
+          Nothing has been deleted. When somebody removes an application, a legal
+          filing, a client request or a project, what it said is kept here.
+        </p>
+      </Panel>
+    );
+  }
+
+  return (
+    <div className="space-y-10">
+      {[...byKind.entries()].map(([kind, list]) => (
+        <section key={kind}>
+          <div className="flex items-baseline gap-3 mb-3">
+            <Eyebrow>{ARCHIVED_LISTS[kind] || kind}</Eyebrow>
+            <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>
+              {list.length}
+            </span>
+          </div>
+          {list.length === 0 ? (
+            <p style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft }}>
+              None deleted.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {list.map((row) => (
+                <DeletedRow key={row.id} row={row} />
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function ControlRoom({ data, save, level, session }) {
   // Which of the pages past Discord is open, or null for the hub. Deliberately
   // local: the tab itself is in the address, but which editor you last had open
@@ -4477,6 +4704,15 @@ function ControlRoom({ data, save, level, session }) {
           ]}
         />
       ),
+    },
+    {
+      key: "deleted",
+      label: "Deleted records",
+      blurb:
+        "Applications, legal filings, client requests and projects that have been removed.",
+      note: "What each one said when it was deleted, newest first. Read-only: the record itself is gone, this is the copy kept in case it should not have been. The last 200 are held, then the oldest fall off.",
+      count: (data.deleted || []).length,
+      body: <DeletedRecords data={data} />,
     },
     {
       key: "accounts",
