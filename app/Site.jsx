@@ -11,6 +11,9 @@ import {
   BarChart,
   Bar,
   CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 import {
   LEGAL_KINDS,
@@ -21,6 +24,7 @@ import {
 } from "@/lib/legal";
 import { ARCHIVE_KINDS, archiveLabel } from "@/lib/archive";
 import { FORUM_BOARDS, boardBy, lastActivity } from "@/lib/forum";
+import { readRegister } from "@/lib/shareholders";
 import { CAPS, STOCK_HISTORY_CAP } from "@/lib/caps";
 
 /* ------------------------------------------------------------------ *
@@ -1979,13 +1983,542 @@ function PriceSetter({ data, save }) {
   );
 }
 
-function ShareSection({ data, level, save }) {
+/* ------------------------- the share register --------------------------- *
+ *
+ * Two pies on the share page: who owns the company, and who votes it. The
+ * register itself is chief-executive-only and saves through /api/shareholders;
+ * there is no control room page for it. See CLAUDE.md.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Slice colours.
+ *
+ * Built in OKLCH against the paper surface and checked with a validator rather
+ * than by eye: each sits inside the lightness band and above the chroma floor,
+ * every *pair* holds apart under protanopia, deuteranopia and tritanopia — all
+ * pairs, not just neighbours, because any two wedges of a pie can be compared —
+ * and all five clear 3:1 against the paper. They are the house accents pushed
+ * to where they survive that: oxblood, gold, ledger green, navy, teal.
+ *
+ * Five, with the rest of the register folded into one neutral wedge. A set that
+ * passes those checks does not stretch much further, and a pie with fifteen
+ * slices is a colour-matching puzzle rather than a chart. If you add a sixth,
+ * re-run the validator; do not pick one by eye.
+ */
+const SHARE_SLICES = ["#df6862", "#9d7200", "#006b39", "#2a669f", "#009bab"];
+
+/** A name that has to sit inside a wedge. Long ones are cut rather than allowed
+ *  to run across the slice next door; the tooltip and the table have it whole. */
+function shortName(name) {
+  return name.length > 18 ? name.slice(0, 17) + "…" : name;
+}
+
+/** Ink for a label sitting on a slice, so the writing survives the fill. */
+function sliceInk(hex) {
+  const v = (i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = 0.2126 * v(1) + 0.7152 * v(3) + 0.0722 * v(5);
+  return lum > 0.42 ? C.ink : "#FFFFFF";
+}
+
+/**
+ * The register as wedges.
+ *
+ * `issued` is what 100% means. If the holdings add up to more than it — or if
+ * no total has been recorded at all — the pie falls back to the total held, so
+ * it still reads as a whole company, and the page says the figure needs
+ * attention rather than drawing a chart that quietly lies about percentages.
+ */
+function capTable(holders, issued) {
+  const rows = [...(holders || [])]
+    .filter((h) => h && h.shares > 0)
+    .sort((a, b) => b.shares - a.shares);
+
+  const held = rows.reduce((sum, h) => sum + h.shares, 0);
+  const base = issued >= held && issued > 0 ? issued : held;
+  const pct = (n) => (base > 0 ? (n / base) * 100 : 0);
+
+  const slices = rows.slice(0, SHARE_SLICES.length).map((h, i) => ({
+    key: h.id || h.name,
+    name: h.name,
+    shares: h.shares,
+    pct: pct(h.shares),
+    color: SHARE_SLICES[i],
+  }));
+
+  const rest = rows.slice(SHARE_SLICES.length);
+  if (rest.length) {
+    const restShares = rest.reduce((sum, h) => sum + h.shares, 0);
+    slices.push({
+      key: "others",
+      name: rest.length + " smaller holders",
+      shares: restShares,
+      pct: pct(restShares),
+      color: C.inkSoft,
+      folded: true,
+    });
+  }
+
+  const spare = Math.max(0, issued - held);
+  if (spare > 0) {
+    slices.push({
+      key: "unallocated",
+      name: "Not allocated",
+      shares: spare,
+      pct: pct(spare),
+      color: C.paperDeep,
+      muted: true,
+    });
+  }
+
+  return { slices, held, base, holders: rows.length, over: held > issued };
+}
+
+/** A wedge's own figures, on hover. The equity chart's only route to a name. */
+function SliceTip({ active, payload, named }) {
+  if (!active || !payload || !payload.length) return null;
+  const s = payload[0].payload;
+  if (!s) return null;
+  return (
+    <div
+      style={{
+        background: C.paper,
+        border: `1px solid ${C.ink}`,
+        padding: "8px 10px",
+        maxWidth: 240,
+      }}
+    >
+      {named && (
+        <div style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink, marginBottom: 2 }}>
+          {s.name}
+        </div>
+      )}
+      <div style={{ fontFamily: F.mono, fontSize: 11.5, color: s.muted ? C.inkSoft : C.ink }}>
+        {s.pct.toFixed(1)}% of the company
+      </div>
+      <div style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft }}>
+        {s.shares.toLocaleString("en-US")} shares
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One register chart.
+ *
+ * `names` decides whether a wedge carries its holder's name. The voter chart
+ * does; the equity chart deliberately does not, and gives the name up only on
+ * hover. Both label every wedge they can with its percentage — that is not
+ * decoration: the palette clears its colour-blindness checks in the band where
+ * a second, non-colour channel is required, and the percentage is it.
+ */
+function RegisterPie({ table, names }) {
+  const { slices } = table;
+  const label = (p) => {
+    const s = slices[p.index];
+    if (!s) return null;
+    const r = p.innerRadius + (p.outerRadius - p.innerRadius) * 0.62;
+
+    /**
+     * Does the writing actually fit in the wedge?
+     *
+     * The arc the label sits on is `2πr × the slice's share`, and the label is
+     * about 6.4px per character of the longest line. Both halves matter: a
+     * percentage floor alone puts "Redmont Holdings" across three wedges while
+     * dropping a short name that had room, and a chart squeezed into half a
+     * column has less arc for the same percentage than a full-width one.
+     * Whatever is dropped here is still on the tooltip, and on the table for the
+     * chart that has one.
+     */
+    const shown = names ? shortName(s.name) : "";
+    const needed = Math.max(shown.length * 6.4, 40) + 8;
+    const arc = 2 * Math.PI * r * (s.pct / 100);
+    if (arc < needed) return null;
+
+    const a = (-p.midAngle * Math.PI) / 180;
+    const x = p.cx + r * Math.cos(a);
+    const y = p.cy + r * Math.sin(a);
+    const ink = s.muted ? C.inkSoft : sliceInk(s.color);
+    return (
+      <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill={ink}>
+        {names && (
+          <tspan x={x} dy="-0.5em" style={{ fontFamily: F.body, fontSize: 12.5 }}>
+            {shown}
+          </tspan>
+        )}
+        <tspan x={x} dy={names ? "1.3em" : 0} style={{ fontFamily: F.mono, fontSize: 11 }}>
+          {s.pct.toFixed(1)}%
+        </tspan>
+      </text>
+    );
+  };
+
+  return (
+    <div style={{ height: 300 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={slices}
+            dataKey="shares"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            outerRadius="82%"
+            label={label}
+            labelLine={false}
+            isAnimationActive={false}
+          >
+            {slices.map((s) => (
+              <Cell
+                key={s.key}
+                fill={s.color}
+                // A 2px surface-coloured edge is the gap between fills; the
+                // unallocated wedge is nearly the paper colour, so it takes a
+                // hairline rule instead or it would have no edge at all.
+                stroke={s.muted ? C.rule : C.paper}
+                strokeWidth={s.muted ? 1 : 2}
+              />
+            ))}
+          </Pie>
+          <Tooltip content={<SliceTip named />} wrapperStyle={{ outline: "none" }} />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/** The wedges as a table, which is what a reader who cannot use colour has. */
+function RegisterTable({ table }) {
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <tbody>
+        {table.slices.map((s) => (
+          <tr key={s.key} style={{ borderTop: `1px solid ${C.paperLine}` }}>
+            <td style={{ padding: "7px 0", width: 22 }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  display: "inline-block",
+                  width: 10,
+                  height: 10,
+                  background: s.color,
+                  border: s.muted ? `1px solid ${C.rule}` : "none",
+                }}
+              />
+            </td>
+            <td
+              style={{
+                padding: "7px 8px 7px 0",
+                fontFamily: F.body,
+                fontSize: 13.5,
+                color: s.muted ? C.inkSoft : C.ink,
+              }}
+            >
+              {s.name}
+            </td>
+            <td
+              style={{
+                padding: "7px 0",
+                textAlign: "right",
+                fontFamily: F.mono,
+                fontSize: 12,
+                color: C.inkSoft,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {s.shares.toLocaleString("en-US")}
+            </td>
+            <td
+              style={{
+                padding: "7px 0 7px 14px",
+                textAlign: "right",
+                fontFamily: F.mono,
+                fontSize: 12.5,
+                color: s.muted ? C.inkSoft : C.ink,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {s.pct.toFixed(1)}%
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** The empty state, which a fresh record shows until the register is filled in. */
+function RegisterEmpty({ what }) {
+  return (
+    <Panel tone="deep" style={{ padding: 20, borderStyle: "dashed" }}>
+      <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
+        No {what} are on the register yet. The chief executive adds them from the
+        hammer above.
+      </p>
+    </Panel>
+  );
+}
+
+const blankHolder = () => ({ id: "", name: "", shares: 0 });
+
+/**
+ * The register editor, behind the hammer.
+ *
+ * It holds a draft rather than saving as you type. Both charts read the draft
+ * while it is open, so a holding changes the pie as it is typed — which is the
+ * point of editing it here rather than on a form somewhere else — and the whole
+ * register goes to the server once, on Save. The control room's keystroke saves
+ * would be a PUT per character for a chart nobody is reading yet.
+ */
+function RegisterEditor({ draft, setDraft, onSave, onCancel, busy, msg }) {
+  const [armed, setArmed] = useState(null);
+
+  const setRow = (cls, i, patch) =>
+    setDraft({
+      ...draft,
+      [cls]: draft[cls].map((h, j) => (j === i ? { ...h, ...patch } : h)),
+    });
+
+  const addRow = (cls) => setDraft({ ...draft, [cls]: [...draft[cls], blankHolder()] });
+
+  // Armed by identity rather than by index: the lists re-sort by size on the
+  // chart, and an armed row addressed by position could end up removing
+  // somebody else.
+  const removeRow = (cls, i) =>
+    setDraft({ ...draft, [cls]: draft[cls].filter((_, j) => j !== i) });
+
+  const column = (cls, title, issuedKey, issuedLabel, issuedHint) => (
+    <div>
+      <Eyebrow color={C.gold}>{title}</Eyebrow>
+      <div className="mt-3 mb-4">
+        <Field
+          label={issuedLabel}
+          type="number"
+          value={draft[issuedKey]}
+          onChange={(v) => setDraft({ ...draft, [issuedKey]: v })}
+          hint={issuedHint}
+        />
+      </div>
+      {draft[cls].map((h, i) => {
+        const id = cls + ":" + i;
+        return (
+          // Wraps rather than squeezing: on a 320px phone the name, the count
+          // and the remove control do not fit on one line.
+          <div key={id} className="flex items-center gap-2 mb-2 flex-wrap">
+            <input
+              value={h.name}
+              placeholder="Holder"
+              aria-label="Holder name"
+              onChange={(e) => setRow(cls, i, { name: e.target.value })}
+              style={{
+                flex: "1 1 auto",
+                minWidth: 0,
+                fontFamily: F.body,
+                fontSize: 14,
+                color: C.ink,
+                background: "rgba(255,255,255,0.7)",
+                border: `1px solid ${C.rule}`,
+                padding: "8px 10px",
+                outline: "none",
+              }}
+            />
+            <input
+              type="number"
+              value={h.shares}
+              aria-label="Shares held"
+              onChange={(e) => setRow(cls, i, { shares: Number(e.target.value) })}
+              style={{
+                flex: "0 1 120px",
+                minWidth: 90,
+                fontFamily: F.mono,
+                fontSize: 14,
+                color: C.ink,
+                background: "rgba(255,255,255,0.7)",
+                border: `1px solid ${C.rule}`,
+                padding: "8px 10px",
+                outline: "none",
+              }}
+            />
+            {armed === id ? (
+              <span className="flex items-center gap-1 shrink-0">
+                <Btn
+                  variant="seal"
+                  style={{ padding: "8px 10px" }}
+                  onClick={() => {
+                    removeRow(cls, i);
+                    setArmed(null);
+                  }}
+                >
+                  Yes
+                </Btn>
+                <Btn variant="ghost" style={{ padding: "8px 10px" }} onClick={() => setArmed(null)}>
+                  Keep
+                </Btn>
+              </span>
+            ) : (
+              <Btn
+                variant="ghost"
+                style={{ padding: "8px 12px" }}
+                onClick={() => setArmed(id)}
+                title="Remove this holder"
+              >
+                ✕
+              </Btn>
+            )}
+          </div>
+        );
+      })}
+      <div className="mt-3">
+        <Btn variant="ghost" onClick={() => addRow(cls)}>
+          Add a holder
+        </Btn>
+      </div>
+    </div>
+  );
+
+  return (
+    <Panel style={{ padding: 20, marginTop: 16 }} tone="deep">
+      <Eyebrow color={C.seal}>Chief executive</Eyebrow>
+      <p
+        className="mt-2 mb-5 max-w-3xl"
+        style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
+      >
+        Both charts follow this as you type. Nothing is on the record until you
+        save it, and closing the hammer without saving leaves the register as it
+        was.
+      </p>
+
+      <div className="grid md:grid-cols-2 gap-x-10 gap-y-8">
+        {column(
+          "equity",
+          "Equity shareholders",
+          "shares",
+          "Total shares issued",
+          "The same figure the market capital is worked out from, so changing it moves that too."
+        )}
+        {column(
+          "voters",
+          "Voter shareholders",
+          "voterShares",
+          "Total voting shares issued",
+          "Votes are counted on their own, and need not match the shares issued."
+        )}
+      </div>
+
+      <div className="flex items-center gap-4 flex-wrap mt-6">
+        <Btn variant="ledger" onClick={onSave} disabled={busy}>
+          {busy ? "Saving…" : "Save the register"}
+        </Btn>
+        <Btn variant="ghost" onClick={onCancel} disabled={busy}>
+          Discard
+        </Btn>
+        {msg && (
+          <span
+            style={{
+              fontFamily: F.mono,
+              fontSize: 11.5,
+              color: msg.bad ? C.seal : C.ledger,
+            }}
+          >
+            {msg.text}
+          </span>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+/** The line under a chart: how much of it is spoken for, and any warning. */
+function RegisterNote({ table, issued, unit, extra }) {
+  const bad = table.over;
+  return (
+    <p
+      className="mt-3"
+      style={{ fontFamily: F.mono, fontSize: 11, color: bad ? C.seal : C.inkSoft, lineHeight: 1.6 }}
+    >
+      {bad
+        ? issued > 0
+          ? `The register holds ${table.held.toLocaleString("en-US")} ${unit} against ${issued.toLocaleString(
+              "en-US"
+            )} issued. Percentages are of what is held until that is corrected.`
+          : `No ${unit} issued has been recorded, so percentages are of the ${table.held.toLocaleString(
+              "en-US"
+            )} on the register.`
+        : `${table.holders} holder${table.holders === 1 ? "" : "s"} · ${table.held.toLocaleString(
+            "en-US"
+          )} of ${issued.toLocaleString("en-US")} ${unit} allocated`}
+      {extra ? " · " + extra : ""}
+    </p>
+  );
+}
+
+function ShareSection({ data, level, save, saveRegister }) {
   const s = data.stock;
   const cap = s.price * s.shares;
   const equity = data.financials.equity || 0;
   const bookPerShare = equity / (s.shares || 1);
   const first = s.history.length ? s.history[0].price : s.price;
   const growth = first ? ((s.price - first) / first) * 100 : 0;
+
+  /* ---------------------------- the register ---------------------------- */
+
+  // The draft is the lock: it exists only while the hammer is open, which keeps
+  // "is it unlocked" and "what is being edited" from ever disagreeing.
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const register = readRegister(data);
+
+  // Chief executive only, and unlike the chart hammer and the price control
+  // this one is the real gate: /api/shareholders checks for `ceo`, and there is
+  // no control room page that could write the register instead.
+  const mayEdit = level >= LEVEL.ceo && !!saveRegister;
+  const editing = mayEdit && !!draft;
+
+  // While the hammer is open both charts read the draft, so a holding moves the
+  // pie as it is typed rather than after a save.
+  const view = editing
+    ? draft
+    : { ...register, shares: s.shares || 0 };
+
+  const equityTable = capTable(view.equity, view.shares);
+  const voterTable = capTable(view.voters, view.voterShares);
+
+  const openEditor = () => {
+    setDraft({
+      shares: s.shares || 0,
+      voterShares: register.voterShares,
+      equity: register.equity.map((h) => ({ ...h })),
+      voters: register.voters.map((h) => ({ ...h })),
+    });
+    setMsg(null);
+  };
+
+  const closeEditor = () => {
+    setDraft(null);
+    setMsg(null);
+  };
+
+  const commit = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await saveRegister({
+        shares: draft.shares,
+        voterShares: draft.voterShares,
+        equity: draft.equity,
+        voters: draft.voters,
+      });
+      setMsg({ text: "Saved to the register." });
+    } catch (e) {
+      setMsg({ text: e.message, bad: true });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-10">
@@ -2068,10 +2601,100 @@ function ShareSection({ data, level, save }) {
         </Panel>
       </section>
 
+      <section>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <SectionHead
+              index="III"
+              title="Equity shareholders"
+              note={
+                editing
+                  ? "Unlocked. Both charts follow what you type; nothing is on the record until you save."
+                  : "Who owns the company, by paid-up shares. The names are not printed on the chart — hover a slice for the holder and the share of the company it is."
+              }
+            />
+          </div>
+          {mayEdit && (
+            <div className="shrink-0 pt-1">
+              <Btn
+                variant={editing ? "gold" : "ghost"}
+                onClick={editing ? closeEditor : openEditor}
+                title={editing ? "Lock the register" : "Unlock the register for editing"}
+              >
+                <span aria-hidden="true" style={{ fontSize: 14 }}>
+                  🔨
+                </span>
+                <span className="sr-only">
+                  {editing ? "Lock the share register" : "Unlock the share register"}
+                </span>
+              </Btn>
+            </div>
+          )}
+        </div>
+
+        {editing && (
+          <RegisterEditor
+            draft={draft}
+            setDraft={setDraft}
+            onSave={commit}
+            onCancel={closeEditor}
+            busy={busy}
+            msg={msg}
+          />
+        )}
+
+        <div className="mt-4">
+          {/* Judged on holders, not slices: with nobody on the register the
+              only wedge would be the unallocated one, which is a grey disc
+              rather than a chart. */}
+          {equityTable.holders ? (
+            <Panel style={{ padding: 18 }}>
+              {/* Held to a width rather than stretched across the panel: with
+                  no table beside it the chart would otherwise sit alone in the
+                  middle of a very wide sheet of paper. */}
+              <div className="mx-auto" style={{ maxWidth: 560 }}>
+                <RegisterPie table={equityTable} />
+              </div>
+              {/* No table of names under this one: the chart is meant to give
+                  the holder up on hover and nowhere else. The percentages on
+                  the wedges are the second, non-colour channel the palette
+                  needs, and they carry no name. */}
+              <RegisterNote
+                table={equityTable}
+                issued={view.shares}
+                unit="shares"
+                extra="hover a slice for the holder"
+              />
+            </Panel>
+          ) : (
+            <RegisterEmpty what="equity shareholders" />
+          )}
+        </div>
+      </section>
+
+      <section>
+        <SectionHead
+          index="IV"
+          title="Voter shareholders"
+          note="Who votes the company. Voting shares are counted on their own and need not match the shares issued."
+        />
+        {voterTable.holders ? (
+          <Panel style={{ padding: 18 }}>
+            <div className="grid lg:grid-cols-2 gap-6 items-center">
+              <RegisterPie table={voterTable} names />
+              <RegisterTable table={voterTable} />
+            </div>
+            <RegisterNote table={voterTable} issued={view.voterShares} unit="votes" />
+          </Panel>
+        ) : (
+          <RegisterEmpty what="voter shareholders" />
+        )}
+      </section>
+
       {level >= LEVEL.client ? (
         <section>
           <SectionHead
-            index="III"
+            index="V"
             title="The full record"
             note="Every price point the company has posted."
           />
@@ -6462,6 +7085,26 @@ export default function App() {
     await load();
   }, [load, prefs.landingTab]);
 
+  /**
+   * The share register. Its own route rather than a page save, because
+   * `shareholders` is not in `EDITABLE` and /api/shareholders is the only thing
+   * that may write it — chief executive only, checked there.
+   *
+   * It does not set the record optimistically the way `save` does: the server
+   * mints ids for new holders and cleans the rows, so the reload is what brings
+   * back the register as it was actually stored.
+   */
+  const saveRegister = useCallback(
+    async (payload) => {
+      await api("/api/shareholders", {
+        method: "POST",
+        body: JSON.stringify({ action: "save", ...payload }),
+      });
+      await load();
+    },
+    [load]
+  );
+
   const submitRequest = useCallback(
     async (req) => {
       await api("/api/requests", { method: "POST", body: JSON.stringify(req) });
@@ -6713,7 +7356,14 @@ export default function App() {
             onSignIn={() => setShowSignIn(true)}
           />
         )}
-        {tab === "Share" && <ShareSection data={data} level={level} save={save} />}
+        {tab === "Share" && (
+          <ShareSection
+            data={data}
+            level={level}
+            save={save}
+            saveRegister={saveRegister}
+          />
+        )}
         {tab === "Financials" && <Financials data={data} level={level} />}
         {tab === "People" && <People data={data} level={level} save={save} />}
         {tab === "Projects" && <Projects data={data} level={level} />}

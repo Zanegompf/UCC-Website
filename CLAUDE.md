@@ -55,6 +55,9 @@ app/
     legal/          POST for the legal department (legal+), body.action
                     "file" | "comment" | "template" | "delete" — delete is ceo only
     archive/        POST body.action "restore" — puts a deleted row back (exec)
+    shareholders/   POST body.action "save" — the whole share register, **ceo
+                    only**. The one route whose gate is the whole story; see
+                    "The share register"
     forum/          POST body.action "thread" | "reply" | "lock" | "delete".
                     Posting needs an account and the board's level; lock and
                     delete are exec
@@ -71,6 +74,10 @@ lib/
   legal.js          LEGAL_KINDS/_BLURBS/_PLURALS, LEGAL_STATUSES, kindPlural().
                     Constants only, so unlike HOOK_EVENTS it is imported by both
                     the route and Site.jsx rather than mirrored
+  shareholders.js   EMPTY_REGISTER, SHARE_CLASSES, readRegister(), totalHeld().
+                    Constants and normalising only, like lib/legal.js, so the
+                    route and Site.jsx share them. The slice colours are not
+                    here — they live with the rest of the palette in Site.jsx
   ids.js            entryId(), the one id generator. Its own module so lib/legal
                     does not have to import lib/archive to borrow it
   archive.js        ARCHIVED_LISTS, withIds(), archiveRemoved() — what keeps a
@@ -112,6 +119,11 @@ commit — miss the second and the field silently vanishes on every save. The on
 deliberate exception is `deleted`, which is server-managed and is carried over
 like `users`; see "Deleted records".
 
+There are now **two** such exceptions: `deleted`, described below, and
+`shareholders`, which only `/api/shareholders` may write. Both are carried over
+by the spread at the top of `PUT`; neither is in `EDITABLE`, and putting either
+one there would hand every executive a page save that overwrites it.
+
 `applications`, `legalFilings`, `requests` and `projects` carry an `id` on every
 row, because the archive spots a deletion by an id going missing. Anything that
 adds a row to one of those four must mint one with `entryId()`.
@@ -134,6 +146,7 @@ whether the request gets that far at all. It is not a substitute for the above.
 | forum threads | 10 / hour per account | all |
 | forum replies | 40 / hour per account | all |
 | restoring a deleted row | 20 / hour per account | all |
+| saving the share register | 60 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
 | bot key | 10 / 10 min per IP | wrong keys only |
 
@@ -169,15 +182,20 @@ is added. `level > 0` in `Site.jsx` is the one numeric comparison, and it only
 asks "signed in with some access".
 
 `ceo` sees exactly what an executive sees — every `filterData` gate is
-`>= LEVEL.exec`, which it clears — and adds three things: unlocking the people
-chart to edit it in place, deleting a legal filing, and moving the share price
-from the share page itself.
+`>= LEVEL.exec`, which it clears — and adds four things: unlocking the people
+chart to edit it in place, deleting a legal filing, moving the share price from
+the share page itself, and writing the share register.
 
-Two of those three are **interfaces, not permissions**: the chart hammer and the
+Two of the four are **interfaces, not permissions**: the chart hammer and the
 share page's price control both save through `PUT /api/data`, which checks for
-**exec**, and an executive can already do both from the control room. Only the
-legal-filing delete is enforced against `ceo` at the server. Do not describe the
-first two as security boundaries.
+**exec**, and an executive can already do both from the control room. Do not
+describe those two as security boundaries.
+
+The other two are real. The legal-filing delete is enforced against `ceo` in
+`/api/legal`, and the share register in `/api/shareholders` — and the register is
+the stricter of the two, because unlike `legalFilings` it is **not in
+`EDITABLE`**, so there is no page save that reaches it either. It is the only
+thing on the record an executive genuinely cannot change.
 
 **Only a chief executive may seat or unseat another**, on PATCH, DELETE and the
 wholesale POST. The one exception is bootstrapping: where the company has no
@@ -214,6 +232,8 @@ One object. Everything hangs off it.
 company{name,short,ticker,exchange,founded,hq,ceo,tagline,mission,discordInvite,serverIp}
 divisions[]{name,code,parent,lead,blurb}          <- a tree; see below
 stock{price,prevClose,shares,listed,updated,history[]{label,price}}
+shareholders{voterShares, equity[]{id,name,shares}, voters[]{id,name,shares}}
+                                                   <- ceo-only, NOT in EDITABLE
 financials{periods[]{label,revenue,expenses}, balance{cash,inventory,property,investments,liabilities}, note}
 staff[]{name,role,dept,joined,note,internal}    <- dept: comma-separated block names
 projects[]{name,status,visibility,progress,target,summary}
@@ -373,6 +393,104 @@ hidden. That is the same trap `StaffRoom` works around with a counter.
 
 The date label defaults to today in the bot's format (`en-GB`, day and month) and
 stays editable, since the common case is posting today's close.
+
+## The share register
+
+Sections **III and IV** of the share page: two pie charts, one for equity
+shareholders and one for voter shareholders. The full price record moved down to
+**V** to make room.
+
+### Two classes, two denominators
+
+`shareholders.equity[]` and `shareholders.voters[]` are separate lists, not one
+list with a flag — a holder usually appears in both with different numbers, and
+money and control are different things.
+
+**Equity is counted against `stock.shares`.** That is the existing "Shares
+issued" figure the market capital and the book value per share are already
+worked out from, so the register cannot disagree with the hero. The editor's
+"Total shares issued" writes it, through the same route. **Votes are counted
+against `shareholders.voterShares`**, which is the register's own, because
+nothing else on the record knows how many votes exist.
+
+Do not give equity its own total. Two share counts is exactly the shape the caps
+were in before they were pulled into `lib/caps.js`.
+
+### Who may write it
+
+**Chief executive only, and here that is a permission rather than an
+interface.** `/api/shareholders` checks `>= LEVEL.ceo`, and `shareholders` is
+**not in `EDITABLE`**, so a page save cannot reach it — an executive who forges
+one gets a 200 and no change. There is deliberately **no control room page for
+the register**: adding one would mean putting `shareholders` in `EDITABLE`,
+which would make the gate decorative.
+
+Tested: a member, a visitor and an **executive** are all refused; the executive's
+forged page save is ignored; an ordinary page save carries the register over
+untouched.
+
+The one thing an executive can still move is `stock.shares` itself, in the
+control room, because that field predates the register and the market capital
+reads it. The register — who holds what — is out of reach.
+
+### Reading it
+
+**Public, decided in `filterData` by not stripping it.** Who owns a listed
+company is what a share register is for, and the share page is the public
+investor page. Note the equity chart's hidden names are a *reading* decision made
+in the browser and not a permission: anybody can hover. If it ever needs to be
+restricted, gate it in `filterData` — hiding it in `Site.jsx` would only hide
+what was still sent.
+
+### The charts
+
+- **Equity (III) names nobody.** Wedges carry a percentage and nothing else; the
+  holder appears on hover, with the share of the company. That was asked for
+  directly, and it is why this chart has no table under it — a legend would give
+  the names straight back.
+- **Voter (IV) names everybody**, inside the wedge, with a table beside it
+  carrying every row including the ones too small to label.
+
+`SHARE_SLICES` in `Site.jsx` is five colours, built in OKLCH against the paper
+surface and **checked with a validator rather than by eye** — lightness band,
+chroma floor, contrast, and colour-blind separation for **every pair** rather
+than just neighbours, because any two wedges of a pie can be compared. They are
+the house accents pushed to where they survive that. A sixth holder does not get
+a sixth colour: `capTable` folds the rest into one neutral "smaller holders"
+wedge. If you add a colour, re-run the validator.
+
+**Labels are dropped by measurement, not by a percentage floor.** The arc a
+label sits on is `2πr × the slice's share`, and the label needs about 6.4px per
+character; a wedge that cannot hold its text gets none. A fixed floor gets this
+wrong both ways — a long name crosses three wedges at 10% while a short one had
+room at 6%, and the voter chart sits in half a column, so it has less arc for the
+same percentage than the equity chart does. What is dropped is still on the
+tooltip, and on the voter table.
+
+### The hammer
+
+Same idiom as the People tab: a 🔨 that shows only at `ceo`, on section III,
+opening an editor for both classes at once.
+
+It holds a **draft** rather than saving as you type. Both charts read the draft
+while it is open, so a holding moves the pie as it is typed — that is the point
+of editing it on the page — and the whole register goes to the server once, on
+Save. Discard drops the draft; the record was never touched. The draft's
+existence *is* the lock, so "unlocked" and "what is being edited" cannot
+disagree.
+
+Rows are removed **armed first** (`✕` → `Yes / Keep`), like the chart's two
+removals and the legal delete.
+
+The route mints an `entryId()` for a holder that arrives without one, cleans
+names to 60 characters, floors shares to whole numbers, refuses a duplicate name
+within a class, and **drops a wholly blank row** rather than refusing it —
+otherwise adding a row and thinking better of it would block the save. A row with
+a number but no name is still refused, and the page shows why.
+
+`MAX_SHAREHOLDERS` (60) is per class, in `lib/caps.js` but not in `CAPS`: the
+register is an object holding two lists, and the trim loop in the save route only
+walks top-level arrays.
 
 ## The shift log
 
@@ -778,8 +896,11 @@ curl -s -c /tmp/e.jar -X POST localhost:3000/api/auth/login \
 # these must all be refused
 curl -s -b /tmp/m.jar localhost:3000/api/users
 curl -s -b /tmp/m.jar -X PUT localhost:3000/api/data -d '{"company":{}}'
+# role must be ignored — the reply says "member". Do NOT use `password123`
+# here: it is on the register route's OBVIOUS list, so the request is refused
+# for being a weak password and the check passes without testing anything.
 curl -s -X POST localhost:3000/api/auth/register \
-  -d '{"username":"x","password":"password123","role":"exec"}'   # role must be ignored
+  -d '{"username":"x","password":"ledger-tin-42","role":"exec"}'
 curl -s -b /tmp/e.jar -X PATCH localhost:3000/api/users \
   -d '{"username":"founder","role":"client"}'                     # self-demotion
 curl -s -b /tmp/e.jar -X POST localhost:3000/api/users \

@@ -42,6 +42,11 @@ const EDITABLE = [
   "jobs",
   "discord",
   "settings",
+  // `shareholders` is deliberately absent, the second exception after
+  // `deleted`. It is written only by /api/shareholders, which checks for a
+  // chief executive; listing it here would hand every executive a way to edit
+  // the register through an ordinary page save and make that gate decorative.
+  // The spread below carries the stored one over untouched.
 ];
 
 // PUT replaces these lists wholesale, so the caps that the append routes apply

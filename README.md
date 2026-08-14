@@ -231,7 +231,7 @@ place instead of dropping on the overview — `#share`, `#staff-room`,
 | Tab | What it holds |
 |---|---|
 | **Overview** | Mission, the company chart, notices, and the job application form |
-| **Share** | Price, market capital, book value, the chart and the full price table |
+| **Share** | Price, market capital, book value, the price chart, who owns and who votes the company, and the full price table |
 | **Financials** | Monthly revenue and costs, and the balance sheet for staff |
 | **People** | The same chart as the overview, with the people in it |
 | **Projects** | What is being built, with progress |
@@ -261,6 +261,32 @@ change it, and it saves when you click away. Renaming a block carries its
 children and its people with it. Removing a block is only offered when nothing
 hangs off it and nobody is in it, and both removals ask twice — the record is
 the only copy.
+
+**The share register.** The Share tab carries two pie charts: **Equity
+shareholders** (section III) and **Voter shareholders** (section IV), with the
+full price table below them at V.
+
+Equity is money — who owns the company — and is counted against the **shares
+issued**, the same number the market capital is worked out from. Votes are
+control, counted against their own total, because a vote and a share need not be
+the same thing. Anything issued but not on the register shows as a pale "not
+allocated" wedge, so the chart is honest about what is spoken for.
+
+The two charts read differently on purpose. **The voter chart names everybody**,
+in the wedge, with a table beside it. **The equity chart names nobody** — each
+wedge shows only its percentage, and the holder appears when you hover it, along
+with the share of the company they own. A holder too small to fit a label is
+still on the tooltip and in the table.
+
+Beyond five holders the rest are gathered into one "smaller holders" wedge. Five
+is where colours stop being reliably distinguishable, including for colour-blind
+readers, and a pie with fifteen slices is a puzzle rather than a chart.
+
+**Only the chief executive can change it**, from a hammer on section III — there
+is no page for it in the control room, and it is the one thing on the record an
+executive cannot edit. Add a holder, type what they hold, and **both charts move
+as you type**. Nothing is saved until you press Save, and Discard leaves the
+register exactly as it was.
 
 **The shift log.** Staff clock in when they start and out when they finish, and
 the two make **one entry**, not two. Times are typed rather than stamped from
@@ -453,6 +479,7 @@ developer tools shows them nothing extra.
 | Editing anything, accounts, webhooks | — | — | — | — | — | yes | yes |
 | Editing the company chart in place | — | — | — | — | — | — | yes |
 | Moving the share price from the Share tab | — | — | — | — | — | — | yes |
+| Changing the share register | — | — | — | — | — | — | yes |
 | Deleting a legal filing from the department's page | — | — | — | — | — | — | yes |
 | Seating or unseating a chief executive | — | — | — | — | — | first only | yes |
 
