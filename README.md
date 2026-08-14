@@ -238,6 +238,7 @@ place instead of dropping on the overview — `#share`, `#staff-room`,
 | **Client desk** | The rate card, and the form clients use to ask for something |
 | **Staff room** | Requests, the hiring board, standing orders, shift and transaction logs, and the way through to the legal department |
 | **Control room** | Everything that edits the record |
+| **UCC Forum** | Boards where the company and its clients talk |
 
 **The company chart.** Divisions are a tree, not a list: each one names the
 entry it sits under, and a blank one is the top. Governing bodies (the board,
@@ -343,7 +344,7 @@ changes it and that should not need a deploy.
 the page. Everything past them is **one page each**, reached from the cards
 under "The rest of the record" — company details, divisions, staff, projects,
 rate card, financials, client requests, transactions, shift log, applications,
-legal filings, legal templates, job list, deleted records and accounts. They used to be stacked in
+legal filings, legal templates, forum, job list, deleted records and accounts. They used to be stacked in
 one column, so reaching the job list meant scrolling past the whole company.
 Everything on those pages saves the moment you type it.
 
@@ -369,6 +370,29 @@ Everything else is still deleted for good — staff, divisions, the rate card, t
 job list, notices, shifts, transactions and the monthly figures. Those change
 constantly and keeping every version would bloat the record that every visitor
 loads.
+
+**The forum.** Five boards where the company and the people it trades with talk.
+**Reading is open to anyone; posting takes an account**, which is one click from
+the sign-in button and hands over nothing else.
+
+| Board | Who can read and post |
+|---|---|
+| General discussion | anyone |
+| The trading floor | anyone |
+| Contracts and trade | anyone |
+| Client lounge | clients and above |
+| Staff lounge | staff and above |
+
+A board above someone's level still appears on the index, greyed, saying what it
+needs — telling somebody the staff lounge exists is friendlier than hiding it,
+and the server has already withheld every thread inside. The access levels are
+real: a member cannot read *or* reply in the client lounge even if they are given
+a direct link to a thread.
+
+Executives moderate: **Remove** on any post, and **Close thread** to stop new
+replies. Removing the opening post removes the whole thread. Forum posts are not
+kept in Deleted records, so removing one is final. Threads are capped at 200 and
+each keeps its most recent 100 replies.
 
 **Settings** (the cog in the masthead) holds display preferences saved on that
 device only — full figures instead of $1.68M, and which tab a plain visit opens
@@ -406,6 +430,11 @@ developer tools shows them nothing extra.
 | Revenue, expenses, totals | yes | yes | yes | yes | yes | yes | yes |
 | Change own password | — | yes | yes | yes | yes | yes | yes |
 | Apply for a job | — | yes | yes | yes | yes | yes | yes |
+| Read the open forum boards | yes | yes | yes | yes | yes | yes | yes |
+| Post on the forum | — | yes | yes | yes | yes | yes | yes |
+| Client lounge board | — | — | yes | yes | yes | yes | yes |
+| Staff lounge board | — | — | — | yes | yes | yes | yes |
+| Moderating the forum | — | — | — | — | — | yes | yes |
 | Rate card and the client desk | — | — | yes | yes | yes | yes | yes |
 | Client-only projects, the full price table | — | — | yes | yes | yes | yes | yes |
 | Balance sheet, internal staff notes | — | — | — | yes | yes | yes | yes |
@@ -416,6 +445,7 @@ developer tools shows them nothing extra.
 | Deleted records, and restoring one | — | — | — | — | — | yes | yes |
 | Editing anything, accounts, webhooks | — | — | — | — | — | yes | yes |
 | Editing the company chart in place | — | — | — | — | — | — | yes |
+| Moving the share price from the Share tab | — | — | — | — | — | — | yes |
 | Deleting a legal filing from the department's page | — | — | — | — | — | — | yes |
 | Seating or unseating a chief executive | — | — | — | — | — | first only | yes |
 
@@ -425,9 +455,16 @@ on. It sees nothing an executive sees — no accounts, no webhooks, no hiring
 board, no control room. Give it to whoever does the company's legal work; it does
 not count as an executive for the "last executive" guard.
 
-**Chief executive** sees exactly what an executive sees. It adds three things:
-unlocking the People chart to edit it in place, deleting a legal filing, and
+**Chief executive** sees exactly what an executive sees. It adds four things:
+unlocking the People chart to edit it in place, deleting a legal filing, posting
+a new share price from the Share tab without opening the control room, and
 control of its own seat.
+
+The price control sits under the figures on **Share**. Type the price, press
+Record, and the old price becomes the previous close so the change figure works
+itself out. The date label fills in with today's date and can be edited. An
+executive does the same thing in Control room → Move the share price; this is a
+shortcut, not a separate power.
 
 **Only a chief executive may seat or unseat another.** The one exception is
 getting started: where the company has no chief executive at all, an executive
@@ -496,6 +533,8 @@ tight enough to get in the way of ordinary use, but a script gets stopped:
 | Shifts and transactions | 30 / hour each |
 | Job applications | 5 / hour |
 | Legal filings and comments | 40 / hour combined |
+| Forum threads | 10 / hour |
+| Forum replies | 40 / hour |
 | Restoring a deleted record | 20 / hour |
 | Posting to Discord | 20 / hour |
 

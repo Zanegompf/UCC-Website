@@ -55,6 +55,9 @@ app/
     legal/          POST for the legal department (legal+), body.action
                     "file" | "comment" | "template" | "delete" — delete is ceo only
     archive/        POST body.action "restore" — puts a deleted row back (exec)
+    forum/          POST body.action "thread" | "reply" | "lock" | "delete".
+                    Posting needs an account and the board's level; lock and
+                    delete are exec
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
@@ -63,6 +66,8 @@ lib/
   seed.js           SEED record + ensureData() first-run/migration
   auth.js           hash, verify, session cookie
   roles.js          LEVEL, ASSIGNABLE_ROLES, filterData(), effectiveRole()
+  forum.js          FORUM_BOARDS and boardMin(). A board's `min` is a role name,
+                    so filterData gates it the same way it gates a project
   legal.js          LEGAL_KINDS/_BLURBS/_PLURALS, LEGAL_STATUSES, kindPlural().
                     Constants only, so unlike HOOK_EVENTS it is imported by both
                     the route and Site.jsx rather than mirrored
@@ -126,6 +131,8 @@ whether the request gets that far at all. It is not a substitute for the above.
 | transactions | 30 / hour per account | all |
 | applications | 5 / hour per account | all |
 | legal filings and comments | 40 / hour per account | all |
+| forum threads | 10 / hour per account | all |
+| forum replies | 40 / hour per account | all |
 | restoring a deleted row | 20 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
 | bot key | 10 / 10 min per IP | wrong keys only |
@@ -162,8 +169,15 @@ is added. `level > 0` in `Site.jsx` is the one numeric comparison, and it only
 asks "signed in with some access".
 
 `ceo` sees exactly what an executive sees — every `filterData` gate is
-`>= LEVEL.exec`, which it clears — and adds two things: unlocking the people
-chart to edit it in place, and deleting a legal filing.
+`>= LEVEL.exec`, which it clears — and adds three things: unlocking the people
+chart to edit it in place, deleting a legal filing, and moving the share price
+from the share page itself.
+
+Two of those three are **interfaces, not permissions**: the chart hammer and the
+share page's price control both save through `PUT /api/data`, which checks for
+**exec**, and an executive can already do both from the control room. Only the
+legal-filing delete is enforced against `ceo` at the server. Do not describe the
+first two as security boundaries.
 
 **Only a chief executive may seat or unseat another**, on PATCH, DELETE and the
 wholesale POST. The one exception is bootstrapping: where the company has no
@@ -212,6 +226,8 @@ applications[]{ts,username,discord,role,wage,experience,references,notes,status,
 legalFilings[]{id,ts,kind,title,party,reference,status,detail,author,account,
                comments[]{ts,author,body,account}}   <- id is load-bearing; see below
 legalTemplates[]{id,ts,name,kind,body,notes,author,account}   <- legal+ writes these
+forum[]{id,ts,board,title,body,author,account,locked,
+        replies[]{id,ts,author,body,account}}   <- `board` decides who may read it
 deleted[]{id,kind,label,ts,by,entry{...}}   <- server-managed, NOT in EDITABLE
 jobs[]{name,category}                              <- public; the dropdown reads it
 discord{webhook,channel,guild,hooks[]{name,url,channel,events}}
@@ -342,6 +358,21 @@ these two cannot. The armed person is held **by identity, not index**, so it
 cannot end up pointing at somebody else if the list shifts. Do not reach for
 `window.confirm` — a native dialog blocks the page, and it is the wrong register
 for this site.
+
+## Moving the share price
+
+`recordPrice(data, label, price)` in `Site.jsx` is the single implementation, used
+by the control room's section II and by `PriceSetter` on the share page. The
+order inside it matters: the current price becomes `prevClose` **before** the new
+one lands, or the change figure on every stat card reads zero. Two copies of that
+would drift the way the caps did — call the helper.
+
+`PriceSetter` shows only at `ceo` and sits **inside section I** rather than as a
+section of its own, so the numerals do not shift for everybody else when it is
+hidden. That is the same trap `StaffRoom` works around with a counter.
+
+The date label defaults to today in the bot's format (`en-GB`, day and month) and
+stays editable, since the common case is posting today's close.
 
 ## The shift log
 
@@ -519,6 +550,40 @@ filings page. The ceo gate covers the department's own page, where filings are
 actually read. If deletion should be genuinely ceo-exclusive, `legalFilings` has
 to come out of `EDITABLE` — which also takes away the exec's ability to correct a
 filing, so it is a trade rather than a fix.
+
+## The forum
+
+A tab of its own (`#ucc-forum`), sitting after the control room and before the
+account tab. Three views behind it — boards, a board's threads, one thread —
+held in **local state, not the address**, the same as the control room's pages.
+
+**A board is gated exactly like a project.** `FORUM_BOARDS` in `lib/forum.js`
+gives each one a `min` using the same role names, and `filterData` drops any
+thread whose board outranks the viewer. Adding a board is one entry there; it
+appears on the index, in the pickers and in the gate together.
+
+`boardMin()` answers **`exec` for a board it does not recognise**, so this gate
+fails closed. A thread whose board was renamed or removed goes quiet and waits
+for an executive, rather than falling open to everybody because its key stopped
+matching. That is the opposite of the `dept` behaviour on the People tab, and
+deliberately so: one is a permission, the other is a tidiness problem.
+
+**Reading takes no account; posting always does.** Like `applications`, the post
+path checks `effectiveRole(...) !== "public"` rather than a level, because
+`member` sits at level 0 and must be able to post. The account requirement is the
+only thing between the forum and an anonymous spam endpoint.
+
+The board's level is re-checked on **reply** as well as on read, or somebody who
+learned a thread id could talk in the staff lounge. Tested: a member replying to
+a staff thread by id is refused and nothing lands.
+
+Moderation is **exec** — removing a thread or a reply, and closing a thread to
+replies. Removing the opening post takes the whole thread with it, which the UI
+knows, so it drops back to the board rather than rendering nothing. Both removals
+arm first, like the chart's.
+
+Forum posts are **not** in `ARCHIVED_LISTS`, so removing one is final. Caps:
+200 threads, and `MAX_REPLIES` 100 per thread.
 
 ## Deleted records
 

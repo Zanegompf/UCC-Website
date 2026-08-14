@@ -20,6 +20,7 @@ import {
   kindPlural,
 } from "@/lib/legal";
 import { ARCHIVED_LISTS } from "@/lib/archive";
+import { FORUM_BOARDS, boardBy, lastActivity } from "@/lib/forum";
 import { CAPS, STOCK_HISTORY_CAP } from "@/lib/caps";
 
 /* ------------------------------------------------------------------ *
@@ -135,6 +136,9 @@ const TABS = [
   { name: "Client desk", min: 0 },
   { name: "Staff room", min: 0 },
   { name: "Control room", min: LEVEL.exec },
+  // Sits after the control room and before the account tab, which App appends.
+  // Open to everyone: reading the forum takes no account, posting does.
+  { name: "UCC Forum", min: 0 },
 ];
 
 const ACCOUNT_TAB = "Account";
@@ -1889,7 +1893,93 @@ function Overview({ data, level, session, onSubmitApplication, onSignIn }) {
   );
 }
 
-function ShareSection({ data, level }) {
+/**
+ * Records a new last-traded price.
+ *
+ * Shared by the control room and the chief executive's control on the share
+ * page, because two copies of this would drift the way the caps did — and the
+ * order matters: yesterday's price has to become `prevClose` before the new one
+ * overwrites it, or the change figure on every stat card reads zero.
+ */
+function recordPrice(data, label, price) {
+  const next = deepClone(data);
+  const p = Number(price);
+  next.stock.prevClose = next.stock.price;
+  next.stock.price = p;
+  next.stock.updated = label;
+  next.stock.history = [
+    ...next.stock.history,
+    { label, price: p },
+  ].slice(-STOCK_HISTORY_CAP);
+  return next;
+}
+
+/** The date label a new price gets unless somebody types their own. */
+const todayLabel = () =>
+  new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+
+/**
+ * Moving the price from the share page itself, for the chief executive.
+ *
+ * The control room can already do this and an executive reaches it there; this
+ * is a second way in rather than a new permission, which is why the server does
+ * not gate it separately — the save is the same exec-level PUT either way. It
+ * sits inside section I so the numerals do not shift for everyone else when it
+ * is hidden.
+ */
+function PriceSetter({ data, save }) {
+  const [form, setForm] = useState({ label: todayLabel(), price: "" });
+  const [msg, setMsg] = useState("");
+
+  const ready = form.label.trim() && form.price !== "" && Number.isFinite(Number(form.price));
+
+  const record = () => {
+    if (!ready) return;
+    save(recordPrice(data, form.label.trim(), form.price));
+    setMsg(
+      `Recorded $${dec(form.price)}, up from $${dec(data.stock.price)}. It is on the chart and the ticker.`
+    );
+    setForm({ label: todayLabel(), price: "" });
+  };
+
+  return (
+    <Panel style={{ padding: 20, marginTop: 16 }} tone="deep">
+      <Eyebrow color={C.seal}>Chief executive</Eyebrow>
+      <p
+        className="mt-2 mb-4 max-w-2xl"
+        style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
+      >
+        Post a new last-traded price without going to the control room. The
+        current price becomes the previous close, so the change figure above is
+        worked out from it.
+      </p>
+      <div className="grid md:grid-cols-2 gap-x-5">
+        <Field
+          label="Date label"
+          value={form.label}
+          onChange={(v) => { setForm({ ...form, label: v }); setMsg(""); }}
+          placeholder="15 July"
+        />
+        <Field
+          label="Price"
+          type="number"
+          value={form.price}
+          onChange={(v) => { setForm({ ...form, price: v }); setMsg(""); }}
+        />
+      </div>
+      <div className="flex items-center gap-4 flex-wrap">
+        <Btn variant="ledger" onClick={record} disabled={!ready}>
+          Record the price
+        </Btn>
+        {msg && (
+          <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}>{msg}</span>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function ShareSection({ data, level, save }) {
   const s = data.stock;
   const cap = s.price * s.shares;
   const equity = data.financials.equity || 0;
@@ -1929,6 +2019,7 @@ function ShareSection({ data, level }) {
             />
           </Panel>
         </div>
+        {level >= LEVEL.ceo && save && <PriceSetter data={data} save={save} />}
       </section>
 
       <section>
@@ -4126,6 +4217,570 @@ function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction, o
   );
 }
 
+/* -------------------------------- the forum ------------------------------ */
+
+/** Opens a thread on one board. The board comes from where you pressed it. */
+function NewThreadModal({ board, onClose, onSubmit, session }) {
+  const [form, setForm] = useState({
+    title: "",
+    body: "",
+    author: session?.username || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const ready = form.title.trim() && form.body.trim();
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "thread", board: board.key, ...form });
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="p-7">
+        <Eyebrow color={C.gold}>{board.name}</Eyebrow>
+        <h2 className="mt-2 mb-1" style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}>
+          New thread
+        </h2>
+        <p
+          className="mb-5"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
+        >
+          {board.blurb}
+        </p>
+
+        <Field
+          label="Title"
+          value={form.title}
+          onChange={(v) => setForm({ ...form, title: v })}
+          placeholder="What is this about?"
+        />
+        <Field
+          label="Your post"
+          rows={8}
+          value={form.body}
+          onChange={(v) => setForm({ ...form, body: v })}
+        />
+        <Field
+          label="Posting as"
+          value={form.author}
+          onChange={(v) => setForm({ ...form, author: v })}
+          placeholder="Your in-game name"
+        />
+
+        {error && (
+          <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+            {error}
+          </p>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
+            {busy ? "Posting…" : "Post it"}
+          </Btn>
+          <Btn onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** One post — the thread's opening message, or a reply to it. */
+function ForumPost({ post, session, canModerate, onDelete, opening }) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onDelete(post.id);
+    } catch (e) {
+      setBusy(false);
+      setArmed(false);
+    }
+  };
+
+  return (
+    <Panel style={{ padding: 18 }} tone={opening ? "deep" : undefined}>
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.ink }}>
+          {post.author || post.account}
+        </span>
+        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>{post.ts}</span>
+        {post.account && post.account === session?.username && (
+          <span
+            style={{
+              fontFamily: F.mono,
+              fontSize: 9.5,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: C.inkSoft,
+            }}
+          >
+            you
+          </span>
+        )}
+        {canModerate && (
+          <span className="ml-auto flex items-center gap-2">
+            {armed ? (
+              <>
+                <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.seal }}>
+                  {opening ? "Remove the whole thread?" : "Remove this post?"}
+                </span>
+                <OrgAction tone="seal" onClick={remove} title="Yes, remove it">
+                  {busy ? "…" : "Yes"}
+                </OrgAction>
+                <OrgAction onClick={() => setArmed(false)} title="Keep it">
+                  Keep
+                </OrgAction>
+              </>
+            ) : (
+              <OrgAction tone="seal" onClick={() => setArmed(true)} title="Remove this post">
+                Remove
+              </OrgAction>
+            )}
+          </span>
+        )}
+      </div>
+      <p
+        style={{
+          fontFamily: F.body,
+          fontSize: 14.5,
+          color: C.ink,
+          lineHeight: 1.65,
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+          margin: 0,
+        }}
+      >
+        {post.body}
+      </p>
+    </Panel>
+  );
+}
+
+/** A thread and everything said in it. */
+function ForumThread({ thread, board, level, session, onBack, onSubmitForum }) {
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const canModerate = level >= LEVEL.exec;
+  const canPost = Boolean(session?.username) && level >= LEVEL[board.min];
+  const replies = Array.isArray(thread.replies) ? thread.replies : [];
+
+  const reply = async () => {
+    if (!draft.trim() || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmitForum({ action: "reply", id: thread.id, body: draft });
+      setDraft("");
+    } catch (e) {
+      setError(e.message);
+    }
+    setBusy(false);
+  };
+
+  const remove = async (id) => {
+    await onSubmitForum({ action: "delete", id });
+    // Removing the opening post takes the thread with it, so there is nothing
+    // left to look at.
+    if (id === thread.id) onBack();
+  };
+
+  return (
+    <div className="space-y-6">
+      <Btn onClick={onBack}>← {board.name}</Btn>
+
+      <div>
+        <div className="flex flex-wrap items-center gap-3 mb-2">
+          <Eyebrow>{board.name}</Eyebrow>
+          {thread.locked && (
+            <span
+              style={{
+                fontFamily: F.mono,
+                fontSize: 9.5,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                padding: "3px 7px",
+                background: C.seal,
+                color: "#FFFFFF",
+              }}
+            >
+              Closed
+            </span>
+          )}
+          {canModerate && (
+            <span className="ml-auto">
+              <Btn
+                onClick={() =>
+                  onSubmitForum({ action: "lock", id: thread.id, locked: !thread.locked })
+                }
+              >
+                {thread.locked ? "Reopen" : "Close thread"}
+              </Btn>
+            </span>
+          )}
+        </div>
+        <h2
+          style={{
+            fontFamily: F.display,
+            fontSize: "clamp(26px, 3.4vw, 36px)",
+            lineHeight: 1.08,
+            color: C.ink,
+            letterSpacing: "-0.015em",
+          }}
+        >
+          {thread.title}
+        </h2>
+      </div>
+
+      <div className="space-y-3">
+        <ForumPost
+          opening
+          post={thread}
+          session={session}
+          canModerate={canModerate}
+          onDelete={remove}
+        />
+        {replies.map((r) => (
+          <ForumPost
+            key={r.id}
+            post={r}
+            session={session}
+            canModerate={canModerate}
+            onDelete={remove}
+          />
+        ))}
+      </div>
+
+      {thread.locked ? (
+        <Panel tone="deep" style={{ padding: 18 }}>
+          <p style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft }}>
+            An executive has closed this thread. Nothing more can be posted to it.
+          </p>
+        </Panel>
+      ) : canPost ? (
+        <Panel style={{ padding: 18 }}>
+          <div className="mb-1">
+            <Eyebrow>Reply</Eyebrow>
+          </div>
+          <textarea
+            rows={4}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Say your piece."
+            style={{
+              width: "100%",
+              fontFamily: F.body,
+              fontSize: 14,
+              color: C.ink,
+              background: "rgba(255,255,255,0.7)",
+              border: `1px solid ${C.rule}`,
+              padding: "8px 10px",
+              outline: "none",
+              lineHeight: 1.5,
+              resize: "vertical",
+            }}
+          />
+          <div className="flex items-center gap-3 mt-2">
+            <Btn variant="solid" onClick={reply} disabled={!draft.trim() || busy}>
+              {busy ? "Posting…" : "Post reply"}
+            </Btn>
+            {error && (
+              <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>{error}</span>
+            )}
+          </div>
+        </Panel>
+      ) : (
+        <Panel tone="deep" style={{ padding: 18, borderStyle: "dashed" }}>
+          <p style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft }}>
+            Sign in to reply. Reading is open; posting takes an account.
+          </p>
+        </Panel>
+      )}
+    </div>
+  );
+}
+
+/** The threads on one board, most recently active first. */
+function ForumBoard({ board, threads, level, session, onOpen, onBack, onSubmitForum }) {
+  const [composing, setComposing] = useState(false);
+  const canPost = Boolean(session?.username) && level >= LEVEL[board.min];
+
+  const ordered = useMemo(
+    () =>
+      [...threads].sort((a, b) => {
+        const d = lastActivity(b).localeCompare(lastActivity(a));
+        return d !== 0 ? d : String(b.id).localeCompare(String(a.id));
+      }),
+    [threads]
+  );
+
+  return (
+    <div className="space-y-6">
+      <Btn onClick={onBack}>← All boards</Btn>
+
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <SectionHead title={board.name} note={board.blurb} />
+        </div>
+        {canPost && (
+          <div className="shrink-0 pt-1">
+            <Btn variant="solid" onClick={() => setComposing(true)}>
+              New thread
+            </Btn>
+          </div>
+        )}
+      </div>
+
+      {ordered.length === 0 ? (
+        <Panel tone="deep" style={{ padding: 20 }}>
+          <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft }}>
+            Nothing here yet.{" "}
+            {canPost ? "Start the first thread." : "Sign in to start the first thread."}
+          </p>
+        </Panel>
+      ) : (
+        <div className="space-y-3">
+          {ordered.map((t) => {
+            const n = (t.replies || []).length;
+            return (
+              <Panel key={t.id} raised style={{ padding: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(t.id)}
+                  className="ucc-hub"
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: 18,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span className="flex flex-wrap items-center gap-3">
+                    <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>{t.ts}</span>
+                    <span style={{ fontFamily: F.mono, fontSize: 12, color: C.inkSoft }}>
+                      {t.author || t.account}
+                    </span>
+                    {t.locked && (
+                      <span
+                        style={{
+                          fontFamily: F.mono,
+                          fontSize: 9.5,
+                          letterSpacing: "0.16em",
+                          textTransform: "uppercase",
+                          color: C.seal,
+                        }}
+                      >
+                        closed
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className="block mt-1"
+                    style={{ fontFamily: F.display, fontSize: 21, color: C.ink, lineHeight: 1.15 }}
+                  >
+                    {t.title}
+                  </span>
+                  <span
+                    className="block mt-2"
+                    style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, letterSpacing: "0.1em" }}
+                  >
+                    {n === 0 ? "no replies" : n === 1 ? "1 reply" : n + " replies"}
+                  </span>
+                </button>
+              </Panel>
+            );
+          })}
+        </div>
+      )}
+
+      {composing && (
+        <NewThreadModal
+          board={board}
+          onClose={() => setComposing(false)}
+          onSubmit={onSubmitForum}
+          session={session}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The company forum.
+ *
+ * Three views behind one tab — the boards, a board's threads, one thread — held
+ * in local state rather than the address, the same way the control room holds
+ * which editor is open. The tab itself is in the hash, so a refresh comes back
+ * to the forum rather than the overview.
+ *
+ * Boards above the viewer's level are shown but not opened. Saying "there is a
+ * staff lounge and you cannot read it" is friendlier than pretending it does not
+ * exist, and the server has already withheld every thread in it.
+ */
+function Forum({ data, level, session, onSubmitForum, onSignIn }) {
+  const [boardKey, setBoardKey] = useState(null);
+  const [threadId, setThreadId] = useState(null);
+
+  const threads = Array.isArray(data.forum) ? data.forum : [];
+  const byBoard = useMemo(() => {
+    const m = new Map(FORUM_BOARDS.map((b) => [b.key, []]));
+    for (const t of threads) {
+      if (!t || !m.has(t.board)) continue;
+      m.get(t.board).push(t);
+    }
+    return m;
+  }, [threads]);
+
+  const board = boardKey ? boardBy(boardKey) : null;
+  const thread = threadId ? threads.find((t) => t && t.id === threadId) : null;
+
+  // A thread that has just been removed, or one whose board the viewer cannot
+  // reach, drops back rather than rendering nothing.
+  if (board && threadId && !thread) {
+    return (
+      <ForumBoard
+        board={board}
+        threads={byBoard.get(board.key) || []}
+        level={level}
+        session={session}
+        onOpen={setThreadId}
+        onBack={() => { setBoardKey(null); setThreadId(null); }}
+        onSubmitForum={onSubmitForum}
+      />
+    );
+  }
+
+  if (board && thread) {
+    return (
+      <ForumThread
+        thread={thread}
+        board={board}
+        level={level}
+        session={session}
+        onBack={() => setThreadId(null)}
+        onSubmitForum={onSubmitForum}
+      />
+    );
+  }
+
+  if (board) {
+    return (
+      <ForumBoard
+        board={board}
+        threads={byBoard.get(board.key) || []}
+        level={level}
+        session={session}
+        onOpen={setThreadId}
+        onBack={() => setBoardKey(null)}
+        onSubmitForum={onSubmitForum}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <SectionHead
+        index="I"
+        title="The forum"
+        note="Where the company and the people it trades with talk. Reading is open to anyone; posting takes an account, which is one click from the sign-in button."
+      />
+
+      {!session?.username && (
+        <Panel tone="deep" style={{ padding: 18 }}>
+          <p
+            className="mb-3"
+            style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
+          >
+            You are reading as a visitor. An account lets you post, and gives you
+            nothing else you did not already have.
+          </p>
+          <Btn variant="solid" onClick={onSignIn}>
+            Sign in or create an account
+          </Btn>
+        </Panel>
+      )}
+
+      <div className="grid md:grid-cols-2 gap-4">
+        {FORUM_BOARDS.map((b) => {
+          const open = level >= LEVEL[b.min];
+          const list = byBoard.get(b.key) || [];
+          const posts = list.reduce((n, t) => n + 1 + (t.replies || []).length, 0);
+
+          return (
+            <Panel
+              key={b.key}
+              raised={open}
+              tone={open ? undefined : "deep"}
+              style={{ padding: 0, opacity: open ? 1 : 0.72 }}
+            >
+              <button
+                type="button"
+                disabled={!open}
+                onClick={() => open && setBoardKey(b.key)}
+                className={open ? "ucc-hub" : undefined}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: 18,
+                  background: "none",
+                  border: "none",
+                  cursor: open ? "pointer" : "not-allowed",
+                }}
+              >
+                <span
+                  className="block"
+                  style={{ fontFamily: F.display, fontSize: 21, color: C.ink, lineHeight: 1.15 }}
+                >
+                  {b.name}
+                </span>
+                <span
+                  className="block mt-1"
+                  style={{ fontFamily: F.body, fontSize: 13, color: C.inkSoft, lineHeight: 1.5 }}
+                >
+                  {b.blurb}
+                </span>
+                <span
+                  className="block mt-3"
+                  style={{
+                    fontFamily: F.mono,
+                    fontSize: 11,
+                    letterSpacing: "0.1em",
+                    color: open ? C.gold : C.seal,
+                  }}
+                >
+                  {open
+                    ? `${list.length} ${list.length === 1 ? "thread" : "threads"} · ${posts} ${
+                        posts === 1 ? "post" : "posts"
+                      }`
+                    : `${ROLE_NAME[b.min] || b.min} access and above`}
+                </span>
+              </button>
+            </Panel>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------- control room ----------------------------- */
 
 /**
@@ -4605,19 +5260,9 @@ function ControlRoom({ data, save, level, session, onRestore }) {
 
   const addPricePoint = () => {
     if (!pricePoint.label.trim() || pricePoint.price === "") return;
-    const next = deepClone(data);
-    const p = Number(pricePoint.price);
-    next.stock.prevClose = next.stock.price;
-    next.stock.price = p;
-    next.stock.updated = pricePoint.label;
-    // Shares the cap with the save route and the bot, from lib/caps.js. A
-    // tighter trim here meant a price posted from the control room quietly threw
-    // away history the same price posted from Discord would have kept.
-    next.stock.history = [
-      ...next.stock.history,
-      { label: pricePoint.label, price: p },
-    ].slice(-STOCK_HISTORY_CAP);
-    save(next);
+    // Same helper the share page's chief-executive control uses, so the two
+    // cannot disagree about what recording a price does.
+    save(recordPrice(data, pricePoint.label, pricePoint.price));
     setPricePoint({ label: "", price: "" });
   };
 
@@ -5003,6 +5648,36 @@ function ControlRoom({ data, save, level, session, onRestore }) {
             { k: "name", label: "Job" },
             { k: "category", label: "Category", options: ["Trade", "Profession", "Government", "Licence", "Legal licence"] },
           ]}
+        />
+      ),
+    },
+    {
+      key: "forum",
+      label: "Forum",
+      blurb: "Every thread on the boards, and which board it sits in.",
+      note: "Moving a thread to a board with a higher access level hides it from anyone below. Removing a thread here takes its replies with it, and forum posts are not kept in Deleted records — closing and removing are usually better done on the thread itself.",
+      count: (data.forum || []).length,
+      body: (
+        <ListEditor
+          title="Forum threads"
+          items={data.forum || []}
+          blank={{ ts: "", board: FORUM_BOARDS[0].key, title: "", body: "", author: "", locked: false, replies: [] }}
+          onChange={(v) => set("forum", v)}
+          fields={[
+            { k: "title", label: "Title", full: true },
+            { k: "board", label: "Board", options: FORUM_BOARDS.map((b) => b.key) },
+            { k: "author", label: "Posted by" },
+            { k: "body", label: "Opening post", full: true, rows: 4 },
+          ]}
+          footer={(t) => (
+            <p
+              className="mb-3"
+              style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft }}
+            >
+              {(Array.isArray(t.replies) ? t.replies.length : 0) + " repl(ies)"}
+              {t.locked ? " · closed" : ""}
+            </p>
+          )}
         />
       ),
     },
@@ -5819,6 +6494,16 @@ export default function App() {
     [load]
   );
 
+  // Threads, replies, and an executive's moderation all go through here — the
+  // route takes an `action`, the way the legal department does.
+  const submitForum = useCallback(
+    async (payload) => {
+      await api("/api/forum", { method: "POST", body: JSON.stringify(payload) });
+      await load();
+    },
+    [load]
+  );
+
   // Puts a deleted row back. Returns the route's answer so the page can name
   // the list it went to.
   const restoreDeleted = useCallback(
@@ -6012,7 +6697,7 @@ export default function App() {
             onSignIn={() => setShowSignIn(true)}
           />
         )}
-        {tab === "Share" && <ShareSection data={data} level={level} />}
+        {tab === "Share" && <ShareSection data={data} level={level} save={save} />}
         {tab === "Financials" && <Financials data={data} level={level} />}
         {tab === "People" && <People data={data} level={level} save={save} />}
         {tab === "Projects" && <Projects data={data} level={level} />}
@@ -6036,6 +6721,15 @@ export default function App() {
             save={save}
             session={session}
             onRestore={restoreDeleted}
+          />
+        )}
+        {tab === "UCC Forum" && (
+          <Forum
+            data={data}
+            level={level}
+            session={session}
+            onSubmitForum={submitForum}
+            onSignIn={() => setShowSignIn(true)}
           />
         )}
         {tab === "Account" && session.username && (
