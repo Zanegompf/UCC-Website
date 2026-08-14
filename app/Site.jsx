@@ -19,7 +19,7 @@ import {
   LEGAL_STATUS_DEFAULT,
   kindPlural,
 } from "@/lib/legal";
-import { ARCHIVED_LISTS } from "@/lib/archive";
+import { ARCHIVE_KINDS, archiveLabel } from "@/lib/archive";
 import { FORUM_BOARDS, boardBy, lastActivity } from "@/lib/forum";
 import { CAPS, STOCK_HISTORY_CAP } from "@/lib/caps";
 
@@ -5061,6 +5061,21 @@ const DELETED_SUMMARY = {
     meta: [e.status, e.visibility && e.visibility + " only", e.target].filter(Boolean),
     detail: e.summary,
   }),
+  forum: (e) => ({
+    title: e.title,
+    meta: [
+      boardBy(e.board)?.name || e.board,
+      e.author,
+      (e.replies || []).length + " replies",
+      e.locked && "closed",
+    ].filter(Boolean),
+    detail: e.body,
+  }),
+  forumReply: (e) => ({
+    title: e.threadTitle ? `Reply in “${e.threadTitle}”` : "Forum reply",
+    meta: [e.author].filter(Boolean),
+    detail: e.body,
+  }),
 };
 
 function DeletedRow({ row, onRestore }) {
@@ -5174,7 +5189,7 @@ function DeletedRecords({ data, onRestore }) {
   };
 
   const byKind = useMemo(() => {
-    const map = new Map(Object.keys(ARCHIVED_LISTS).map((k) => [k, []]));
+    const map = new Map(ARCHIVE_KINDS.map((k) => [k, []]));
     for (const row of rows) {
       if (!row) continue;
       if (!map.has(row.kind)) map.set(row.kind, []);
@@ -5192,7 +5207,8 @@ function DeletedRecords({ data, onRestore }) {
         <Panel tone="deep" style={{ padding: 20 }}>
           <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
             Nothing has been deleted. When somebody removes an application, a legal
-            filing, a client request or a project, what it said is kept here.
+            filing, a client request, a project or a forum post, what it said is
+            kept here.
           </p>
         </Panel>
       </div>
@@ -5207,7 +5223,7 @@ function DeletedRecords({ data, onRestore }) {
       {[...byKind.entries()].map(([kind, list]) => (
         <section key={kind}>
           <div className="flex items-baseline gap-3 mb-3">
-            <Eyebrow>{ARCHIVED_LISTS[kind] || kind}</Eyebrow>
+            <Eyebrow>{archiveLabel(kind)}</Eyebrow>
             <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>
               {list.length}
             </span>
@@ -5686,7 +5702,7 @@ function ControlRoom({ data, save, level, session, onRestore }) {
       label: "Deleted records",
       blurb:
         "Applications, legal filings, client requests and projects that have been removed.",
-      note: "What each one said when it was deleted, newest first. Restore puts it back at the end of its list, keeping the date it was originally filed. The last 200 deletions are held, then the oldest fall off.",
+      note: "What each one said when it was deleted, newest first. Restore puts it back keeping the date it was originally filed — at the end of its list, except a forum reply, which goes back in sequence in its thread. Restoring a thread brings its replies with it. The last 200 deletions are held, then the oldest fall off.",
       count: (data.deleted || []).length,
       body: <DeletedRecords data={data} onRestore={onRestore} />,
     },

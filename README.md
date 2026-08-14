@@ -348,17 +348,24 @@ legal filings, legal templates, forum, job list, deleted records and accounts. T
 one column, so reaching the job list meant scrolling past the whole company.
 Everything on those pages saves the moment you type it.
 
-**Deleted records.** Four lists remember what was removed from them: **job
-applications, legal filings, client requests and projects**. Delete one and what
+**Deleted records.** Five things remember what was removed: **job applications,
+legal filings, client requests, projects and forum posts**. Delete one and what
 it said is kept on the Deleted records page, newest first, with who deleted it
 and when. It exists because a mis-click on Remove used to be final — the save
 overwrote the list and nothing on the record remembered.
 
-Each one has a **Restore** button that puts it back. The restored row goes to the
-**end of its list**, keeping the date it was originally filed — nothing records
-where it used to sit, and the rows around it have moved on since. A restored
-legal filing brings its comments back with it. Once restored it leaves this page,
-because it is no longer deleted.
+Each one has a **Restore** button that puts it back, keeping the date it was
+originally filed. Most go to the **end of their list** — nothing records where
+they used to sit and the rows around them have moved on since. A restored legal
+filing brings its comments with it, and a restored forum thread brings its whole
+conversation.
+
+**A forum reply is the exception**: it goes back into its thread *in sequence*,
+so a reply deleted from the middle lands back in the middle. If its thread has
+since been deleted too, restoring the reply is refused and tells you to restore
+the thread first, which brings the replies back anyway.
+
+Once restored, an entry leaves this page, because it is no longer deleted.
 
 The page holds the last **200** deletions, then the oldest fall off, so it is a
 safety net for a recent mistake rather than a permanent archive. Two cases it
@@ -390,9 +397,9 @@ real: a member cannot read *or* reply in the client lounge even if they are give
 a direct link to a thread.
 
 Executives moderate: **Remove** on any post, and **Close thread** to stop new
-replies. Removing the opening post removes the whole thread. Forum posts are not
-kept in Deleted records, so removing one is final. Threads are capped at 200 and
-each keeps its most recent 100 replies.
+replies. Removing the opening post removes the whole thread. Removed posts go to
+Deleted records and can be restored. Threads are capped at 200 and each keeps its
+most recent 100 replies.
 
 **Settings** (the cog in the masthead) holds display preferences saved on that
 device only — full figures instead of $1.68M, and which tab a plain visit opens

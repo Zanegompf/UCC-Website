@@ -582,8 +582,9 @@ replies. Removing the opening post takes the whole thread with it, which the UI
 knows, so it drops back to the board rather than rendering nothing. Both removals
 arm first, like the chart's.
 
-Forum posts are **not** in `ARCHIVED_LISTS`, so removing one is final. Caps:
-200 threads, and `MAX_REPLIES` 100 per thread.
+Removed posts go to **Deleted records** and can be restored; see the nested-kind
+note there, because a reply is the one archived thing that is not a row in a
+top-level list. Caps: 200 threads, and `MAX_REPLIES` 100 per thread.
 
 ## Deleted records
 
@@ -592,9 +593,39 @@ overwrote the list, and nothing remembered. Four lists now keep what was removed
 on **`deleted`**, read from Control room → Deleted records.
 
 `ARCHIVED_LISTS` in `lib/archive.js` names them — `applications`,
-`legalFilings`, `requests`, `projects`. Only four on purpose: the record is one
-blob every page load reads, and archiving `shifts` and `transactions`, which turn
-over fastest and matter least individually, would grow it for little gain.
+`legalFilings`, `requests`, `projects`, `forum`. Not all of them on purpose: the
+record is one blob every page load reads, and archiving `shifts` and
+`transactions`, which turn over fastest and matter least individually, would grow
+it for little gain.
+
+### Nested kinds
+
+A forum **reply** is the one archived thing that is not a row in a top-level
+list, so it needs both halves doing differently:
+
+- The save-time diff cannot see it — only `/api/forum` knows a reply went, and it
+  archives one explicitly with `archiveEntry("forumReply", …)`, recording
+  `threadId` and `threadTitle` on the entry.
+- Restoring it cannot append to a list of its own. `NESTED_ARCHIVED` describes
+  where it goes back — `parent`, `into`, and `ref` naming the field that holds
+  the parent's id — and `/api/archive` follows that instead of the list path.
+
+Two behaviours worth keeping:
+
+- It goes back **in sequence**, not on the end. `entryId()` prefixes a base-36
+  timestamp, so sorting the replies on their id sorts them by when they were
+  written, and a restored middle reply lands back in the middle. Top-level
+  restores still append, because nothing records where those sat.
+- `threadId` / `threadTitle` are scaffolding for the archive and are **stripped**
+  on the way back, so the restored reply matches its siblings' shape.
+
+If the parent thread has since been removed too, the restore refuses and says to
+restore the thread first — a thread carries its replies, so that brings the
+conversation back whole. Both archive rows survive the refusal.
+
+`ARCHIVE_KINDS` is the ordered list of everything that can appear on `deleted`,
+and `archiveLabel()` names any of them; the Deleted records page groups on those
+rather than on `ARCHIVED_LISTS`, or the nested kinds would have nowhere to show.
 
 **The archive matches by `id`, never by value.** This is the whole design
 constraint. The control room saves on **every keystroke**, so a value comparison

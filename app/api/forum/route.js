@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { levelOf, LEVEL, effectiveRole } from "@/lib/roles";
 import { boardBy, boardMin } from "@/lib/forum";
 import { entryId } from "@/lib/ids";
+import { archiveEntry } from "@/lib/archive";
 import { CAPS, MAX_REPLIES } from "@/lib/caps";
 import {
   rateLimit,
@@ -67,11 +68,21 @@ export async function POST(req) {
     const id = String(body.id || "").trim();
     if (!id) return bad("Which post should go?");
 
+    const keep = (row) => {
+      data.deleted = [
+        ...(Array.isArray(data.deleted) ? data.deleted : []),
+        row,
+      ].slice(-CAPS.deleted);
+    };
+
     const at = threads.findIndex((t) => t && t.id === id);
     if (at >= 0) {
       const next = [...threads];
-      next.splice(at, 1);
+      const [gone] = next.splice(at, 1);
       data.forum = next;
+      // The thread carries its replies, so restoring it brings the whole
+      // conversation back rather than an empty opening post.
+      keep(archiveEntry("forum", gone, session.username));
       await writeData(data);
       return NextResponse.json({ ok: true, removed: "thread" }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -82,12 +93,24 @@ export async function POST(req) {
     );
     if (ti < 0) return bad("That post is no longer on the record.", 404);
 
+    const parent = threads[ti];
+    const reply = (parent.replies || []).find((r) => r && r.id === id);
+
     const next = [...threads];
     next[ti] = {
-      ...next[ti],
-      replies: (next[ti].replies || []).filter((r) => r && r.id !== id),
+      ...parent,
+      replies: (parent.replies || []).filter((r) => r && r.id !== id),
     };
     data.forum = next;
+    // A reply is not a list of its own, so it records which thread it belongs
+    // to — that is the only way it can be put back where it came from.
+    keep(
+      archiveEntry(
+        "forumReply",
+        { ...reply, threadId: parent.id, threadTitle: parent.title },
+        session.username
+      )
+    );
     await writeData(data);
     return NextResponse.json({ ok: true, removed: "reply" }, { headers: { "Cache-Control": "no-store" } });
   }
