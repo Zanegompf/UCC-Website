@@ -1818,10 +1818,15 @@ function Overview({ data, level, session, onSubmitApplication, onSignIn }) {
       <section>
         <SectionHead
           index="II"
-          title="How the company is put together"
-          note="The board sits above the executive, the executive above the trades, and every division keeps its own books."
+          title="Work with us"
+          note="We hire for the trades we run and the licences we need. Tell us what you do and what you expect to be paid for it — a straight answer on money saves everyone a week."
         />
-        <OrgChart divisions={data.divisions} />
+        <ApplicationForm
+          data={data}
+          session={session}
+          onSubmit={onSubmitApplication}
+          onSignIn={onSignIn}
+        />
       </section>
 
       <section>
@@ -1875,15 +1880,10 @@ function Overview({ data, level, session, onSubmitApplication, onSignIn }) {
       <section>
         <SectionHead
           index="IV"
-          title="Work with us"
-          note="We hire for the trades we run and the licences we need. Tell us what you do and what you expect to be paid for it — a straight answer on money saves everyone a week."
+          title="How the company is put together"
+          note="The board sits above the executive, the executive above the trades, and every division keeps its own books."
         />
-        <ApplicationForm
-          data={data}
-          session={session}
-          onSubmit={onSubmitApplication}
-          onSignIn={onSignIn}
-        />
+        <OrgChart divisions={data.divisions} />
       </section>
     </div>
   );
