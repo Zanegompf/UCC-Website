@@ -52,6 +52,8 @@ app/
     shifts/         POST clock in / clock out (staff+), body.action "in" | "out"
     transactions/   POST a deal done off the chest shops (staff+)
     applications/   POST job application (any signed-in account, incl. member)
+    research/       POST for the research department (rnd+), body.action
+                    "file" | "comment" | "delete" — delete is ceo only
     legal/          POST for the legal department (legal+), body.action
                     "file" | "comment" | "template" | "delete" — delete is ceo only
     archive/        POST body.action "restore" — puts a deleted row back (exec)
@@ -71,6 +73,9 @@ lib/
   roles.js          LEVEL, ASSIGNABLE_ROLES, filterData(), effectiveRole()
   forum.js          FORUM_BOARDS and boardMin(). A board's `min` is a role name,
                     so filterData gates it the same way it gates a project
+  research.js       RESEARCH_KINDS/_BLURBS/_PLURALS, RESEARCH_STATUSES,
+                    researchPlural(). The same shape as lib/legal.js, for the
+                    same reason: constants both the route and Site.jsx import
   legal.js          LEGAL_KINDS/_BLURBS/_PLURALS, LEGAL_STATUSES, kindPlural().
                     Constants only, so unlike HOOK_EVENTS it is imported by both
                     the route and Site.jsx rather than mirrored
@@ -97,6 +102,7 @@ process.** The UI mirrors the decision; it never makes it.
 
 - `filterData(data, level)` strips: `users` and `codes` always; the balance
   sheet, internal staff notes, client requests and the shift log below staff;
+  the research department's files **and every division's `remit`** below rnd;
   the legal department's filings below legal; the rate card below client; the
   Discord webhooks **and job applications** below exec; plus projects and
   announcements whose `visibility` / `audience` outranks the viewer.
@@ -143,6 +149,7 @@ whether the request gets that far at all. It is not a substitute for the above.
 | transactions | 30 / hour per account | all |
 | applications | 5 / hour per account | all |
 | legal filings and comments | 40 / hour per account | all |
+| research files and comments | 40 / hour per account | all |
 | forum threads | 10 / hour per account | all |
 | forum replies | 40 / hour per account | all |
 | restoring a deleted row | 20 / hour per account | all |
@@ -171,15 +178,23 @@ if the site ever moves off Vercel.
 
 ## Roles
 
-`public: 0, member: 0, client: 1, staff: 2, legal: 3, exec: 4, ceo: 5`
+`public: 0, member: 0, client: 1, staff: 2, rnd: 3, legal: 4, exec: 5, ceo: 6`
 
-**`legal` was inserted between staff and exec, which renumbered exec and ceo.**
-That was safe because nothing anywhere compares a level to a literal — every
-gate is written against a `LEVEL.*` symbol, and the record only ever stores role
-*names* (`users[].role`, `visibility`, `audience`), never a number. Keep it that
-way: a hardcoded `level >= 3` would silently change meaning the next time a rank
-is added. `level > 0` in `Site.jsx` is the one numeric comparison, and it only
-asks "signed in with some access".
+**Two ranks have now been inserted mid-list — `legal`, and then `rnd` below
+it — renumbering everything above them both times.** That keeps being safe
+because nothing anywhere compares a level to a literal: every gate is written
+against a `LEVEL.*` symbol, and the record only ever stores role *names*
+(`users[].role`, `visibility`, `audience`, a board's `min`), never a number.
+Keep it that way — a hardcoded `level >= 3` would silently change meaning the
+next time a rank is added, which has now happened twice. `level > 0` in
+`Site.jsx` is the one numeric comparison, and it only asks "signed in with some
+access".
+
+The list to update when a rank is added, all of which the `rnd` change had to
+touch: `LEVEL` and `ASSIGNABLE_ROLES` in `lib/roles.js`, the mirrored `LEVEL`,
+`ROLE_NAME`, `ROLE_BLURB`, `ROLE_TABS` and `RolePicker`'s `fill` in `Site.jsx`,
+and the account-creation `options` list in the control room. `settings.signupRole`
+deliberately still offers only `member` and `client`.
 
 `ceo` sees exactly what an executive sees — every `filterData` gate is
 `>= LEVEL.exec`, which it clears — and adds four things: unlocking the people
@@ -208,11 +223,19 @@ The "last executive" guard counts anyone at `exec` **or above**, so a company
 whose only privileged account is the chief executive is not treated as locked
 out of itself.
 
-`legal` is a **department, not a promotion**. It sees everything a staff member
-sees plus the legal filings, and nothing an executive sees — no webhooks, no
-hiring board, no control room, no accounts. It deliberately does **not** count
+`legal` and `rnd` are **departments, not promotions**. Each sees everything a
+staff member sees plus its own department's files, and nothing an executive sees
+— no webhooks, no hiring board, no control room, no accounts. Neither counts
 towards `runsTheCompany` in `api/users`, so a company whose only privileged
-accounts are legal is still treated as needing an executive.
+accounts are departmental is still treated as needing an executive.
+
+`rnd` sits **below** `legal` rather than beside it, which is a real decision and
+not just an ordering: it means legal reads the research department's files and
+research cannot read legal's. That is the right way round — legal has to see an
+acquisition before it can paper one, and a researcher has no business in a
+dispute. The cost is that the two cannot be genuinely separate compartments;
+this is a ladder, not a set of clearances, and making them independent would
+mean a different model than a single `level`.
 
 `member` is a signed-in account with visitor-level sight. Self-registration
 creates one. This is the safe default: making an account should not hand a
@@ -230,7 +253,10 @@ One object. Everything hangs off it.
 
 ```
 company{name,short,ticker,exchange,founded,hq,ceo,tagline,mission,discordInvite,serverIp}
-divisions[]{name,code,parent,lead,blurb}          <- a tree; see below
+divisions[]{name,code,parent,lead,blurb,remit?}   <- a tree; see below.
+                                     `remit` is stripped below rnd
+research[]{id,ts,kind,title,subject,valuation,status,detail,author,account,
+           comments[]{ts,author,body,account}}    <- stripped below rnd
 stock{price,prevClose,shares,listed,updated,history[]{label,price}}
 shareholders{voterShares, equity[]{id,name,shares}, voters[]{id,name,shares}}
                                                    <- ceo-only, NOT in EDITABLE
@@ -259,8 +285,20 @@ settings{signupOpen,signupRole}
 saves can never clobber accounts. Account changes go through `/api/users` only.
 
 `ensureData()` seeds on first run and back-fills missing keys (`users`,
-`settings`, `shifts`, `discord.hooks`) for records written by older versions.
-Add migrations there.
+`settings`, `shifts`, `research`, `discord.hooks`) for records written by older
+versions. Add migrations there.
+
+**Two kinds of migration live in it, and they are not the same.** A missing
+array becoming an empty one is idempotent — it does not matter how often it
+runs, so most of them are unguarded and unwritten. Adding a *row* is not: doing
+that on every load would mean an executive could delete the row and watch it
+come straight back. Those are gated on `RECORD_VERSION` in `lib/seed.js`, and
+the new version is **written** with the change, the same bargain the id
+migration makes. The research department's block is the first of these: bumping
+`RECORD_VERSION` is what makes a one-shot migration run, and the write is
+wrapped in `try`/`catch` so a read-only token cannot take the site down.
+Verified both ways — an old record gains the block once and no amount of
+reloading adds a second, and a block an executive deletes stays deleted.
 
 **Webhooks are a list.** `discord.hooks[]` holds one entry per channel, each
 with an `events` value from `HOOK_EVENTS` in `lib/discord.js` — a post only
@@ -317,6 +355,22 @@ the row beneath it, because evenly-spaced percentages miss the card centres
 once a gap exists — if you change the gap in `globals.css`, change `ORG_GAP` in
 `Site.jsx` to match. Below 768px the row stacks and the strip is hidden, since
 its geometry assumes one column per child.
+
+**A branch's columns are weighted by what hangs under each child**, through
+`--ucc-template` and `branchTemplate()`/`subtreeSpan()`. Equal columns were fine
+while the committee had one child; the moment the research department was added
+beside the Legal Department, an even split gave a block with nothing under it
+the same half of the page as a subtree four divisions wide, and squeezed those
+four to 90px. The weight is the subtree's width in cards at its widest row. It
+uses `minmax(0, Nfr)`, or a long word in a narrow card pushes its column past its
+share and drags the stubs off the card centres. `subtreeSpan` carries the same
+`seen` cycle guard as `OrgNode`, for the same reason.
+
+**The research department reports to the Executive Committee directly**, not
+through the Legal Department the trading divisions hang off, and nothing reports
+to it — so it draws as a leaf beside Legal with no stem below it. That is the
+chart doing what the tree says rather than anything special-cased: a node with
+no children simply renders no `OrgStem` and no `OrgBranch`.
 
 `parent` is free text from the control room, so a cycle is reachable. `OrgNode`
 carries a `seen` set and stops rather than recursing forever; do not remove it.
@@ -586,6 +640,59 @@ because the server changes it and that should not need a deploy. `ensureData()`
 re-seeds it when the list is missing **or empty**, so an old record does not
 leave the form with nothing to pick.
 
+## The research department
+
+A subpage of the **staff room**, like the legal department, reached by a button
+above section I and rendered only for `rnd` and above. Local state
+(`showResearch`), so a refresh comes back to the staff room.
+
+**Three kinds, one section each**, driven by `RESEARCH_KINDS` in
+`lib/research.js`: market research, competitor analysis, and acquisition
+targets. Adding a kind there adds the section, the button and the picker
+together, exactly as the legal department works — and a file whose kind is no
+longer offered still gets a section rather than vanishing.
+
+### What is actually hidden
+
+Two things, and they are stripped in `filterData` at `< LEVEL.rnd`:
+
+- **`research`**, the files themselves.
+- **`divisions[].remit`**, the second description a block can carry. The
+  research department's block stays on the public chart with a bland `blurb`;
+  what it is *for* — market research, competitor analysis, acquisition targets —
+  is in `remit` and does not leave the server. It is stripped from **every**
+  division rather than from that one by name, so any block can have a restricted
+  remit without touching this code again.
+
+`OrgRemit` in `Site.jsx` renders `d.remit` **with no level check of its own**.
+That is deliberate: a viewer who was not meant to read it does not have it to
+render, and testing the level in the component too would be a second, weaker
+copy of the same decision — the sort that quietly stops matching. Both org cards
+render it, so it shows on the overview chart and the People tab alike.
+
+Why the whole list stops at `rnd` rather than at staff: a target list says what
+the company is about to do, and it names firms that have not been approached and
+prices that have not been offered. Note the bot is unaffected — `/api/bot`
+filters at `LEVEL.staff`, which is below this, so none of it reaches Discord even
+by that path. Nothing here posts to a webhook either.
+
+### The rest of the shape
+
+Mirrors the legal department deliberately, so there is one pattern to learn:
+`id` is load-bearing and comments attach by it; a file typed in by hand in the
+control room has none and says so instead of offering a box the route would
+refuse; deleting is **ceo only**, checked inside the branch rather than at the
+top, and arms first; a deleted file goes to Deleted records like a legal filing.
+`research` **is** in `EDITABLE`, so an executive can still correct one on the
+control room's Research files page — the ceo gate covers the department's own
+page, where the files are read.
+
+`valuation` is **text, not a number**, the same call the transaction log makes:
+"about 40 stacks of diamond" is a real answer. The filing modal renames its two
+loose fields per kind — Market/Size, Competitor/Their scale, Target/Asking —
+because asking for the right thing is the difference between a useful file and
+an empty box.
+
 ## The legal department
 
 A subpage of the **staff room**, not a tab of its own — reached by a button above
@@ -711,7 +818,7 @@ overwrote the list, and nothing remembered. Four lists now keep what was removed
 on **`deleted`**, read from Control room → Deleted records.
 
 `ARCHIVED_LISTS` in `lib/archive.js` names them — `applications`,
-`legalFilings`, `requests`, `projects`, `forum`. Not all of them on purpose: the
+`legalFilings`, `research`, `requests`, `projects`, `forum`. Not all of them on purpose: the
 record is one blob every page load reads, and archiving `shifts` and
 `transactions`, which turn over fastest and matter least individually, would grow
 it for little gain.

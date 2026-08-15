@@ -236,7 +236,7 @@ place instead of dropping on the overview — `#share`, `#staff-room`,
 | **People** | The same chart as the overview, with the people in it |
 | **Projects** | What is being built, with progress |
 | **Client desk** | The rate card, and the form clients use to ask for something |
-| **Staff room** | Requests, the hiring board, standing orders, shift and transaction logs, and the way through to the legal department |
+| **Staff room** | Requests, the hiring board, standing orders, shift and transaction logs, and the way through to the legal and research departments |
 | **Control room** | Everything that edits the record |
 | **UCC Forum** | Boards where the company and its clients talk |
 
@@ -302,10 +302,33 @@ numbers**, because a deal here is as often "half the takings" or "3 stacks of
 iron" as it is a figure. Fill in either or both. Staff file them, so staff can
 read them.
 
-**The legal department.** A **Legal Department** button sits at the top of the
-staff room, above the incoming requests, and opens a page of its own. Only the
-legal rank and executives see the button — staff would only reach a page the
-server has already emptied.
+**The research department.** A **Research & Development** button sits at the top
+of the staff room and opens a page of its own, with three sections: **market
+research**, **competitor analysis**, and **acquisition and merger targets**. File
+what you find, and anyone in the department can comment on it — the thread stays
+with the file.
+
+Only the R&D rank and above see the button. Everyone below is not sent any of it
+at all: not the files, and not the department's **remit** on the company chart.
+The Research and Development block itself is public and sits beside the Legal
+Department, reporting to the Executive Committee, but all a visitor reads is
+"long-range work for the committee". What the department is actually for shows
+only to the department, legal and the executive.
+
+Nothing here ever reaches Discord. The list names firms nobody has approached and
+prices nobody has offered, which is exactly the sort of thing that should not be
+one mis-click away from a channel.
+
+The figure on a file is **text, not a number** — "about 40 stacks of diamond" is
+a real answer — and the form renames its fields to suit what you are filing: a
+market has a size, a competitor has a scale, a target has an asking price. **Only
+the chief executive can delete a file** from the department's page; it goes to
+Deleted records and can be restored.
+
+**The legal department.** A **Legal Department** button sits beside it, above the
+incoming requests, and opens a page of its own. Only the legal rank and
+executives see that one — staff and R&D would only reach a page the server has
+already emptied.
 
 **Section I is Legal templates** — standard wording the department drafts from,
 such as the supply agreement you keep retyping or the licence application you
@@ -374,8 +397,9 @@ legal filings, legal templates, forum, job list, deleted records and accounts. T
 one column, so reaching the job list meant scrolling past the whole company.
 Everything on those pages saves the moment you type it.
 
-**Deleted records.** Five things remember what was removed: **job applications,
-legal filings, client requests, projects and forum posts**. Delete one and what
+**Deleted records.** Six things remember what was removed: **job applications,
+legal filings, research files, client requests, projects and forum posts**.
+Delete one and what
 it said is kept on the Deleted records page, newest first, with who deleted it
 and when. It exists because a mis-click on Remove used to be final — the save
 overwrote the list and nothing on the record remembered.
@@ -437,8 +461,8 @@ as.
 
 ## How permissions actually work
 
-There are seven levels: **visitor, member, client, staff, legal, executive,
-chief executive**.
+There are eight levels: **visitor, member, client, staff, R&D, legal,
+executive, chief executive**.
 
 **Member** is what anyone gets when they create their own account from the
 sign-in box. They can sign in, but they see exactly what a visitor sees. That
@@ -457,42 +481,49 @@ balance sheet, the internal staff notes, the client rate card, the shift log or
 the hidden projects — not hidden with CSS, not present at all. Opening
 developer tools shows them nothing extra.
 
-| | Visitor | Member | Client | Staff | Legal | Exec | CEO |
-|---|---|---|---|---|---|---|---|
-| Mission, share price, company chart, public projects | yes | yes | yes | yes | yes | yes | yes |
-| Revenue, expenses, totals | yes | yes | yes | yes | yes | yes | yes |
-| Change own password | — | yes | yes | yes | yes | yes | yes |
-| Apply for a job | — | yes | yes | yes | yes | yes | yes |
-| Read the open forum boards | yes | yes | yes | yes | yes | yes | yes |
-| Post on the forum | — | yes | yes | yes | yes | yes | yes |
-| Client lounge board | — | — | yes | yes | yes | yes | yes |
-| Staff lounge board | — | — | — | yes | yes | yes | yes |
-| Moderating the forum | — | — | — | — | — | yes | yes |
-| Rate card and the client desk | — | — | yes | yes | yes | yes | yes |
-| Client-only projects, the full price table | — | — | yes | yes | yes | yes | yes |
-| Balance sheet, internal staff notes | — | — | — | yes | yes | yes | yes |
-| Incoming client requests | — | — | — | yes | yes | yes | yes |
-| Shift log, transaction log, clocking in | — | — | — | yes | yes | yes | yes |
-| Legal filings and templates, and commenting | — | — | — | — | yes | yes | yes |
-| Job applications and the hiring board | — | — | — | — | — | yes | yes |
-| Deleted records, and restoring one | — | — | — | — | — | yes | yes |
-| Editing anything, accounts, webhooks | — | — | — | — | — | yes | yes |
-| Editing the company chart in place | — | — | — | — | — | — | yes |
-| Moving the share price from the Share tab | — | — | — | — | — | — | yes |
-| Changing the share register | — | — | — | — | — | — | yes |
-| Deleting a legal filing from the department's page | — | — | — | — | — | — | yes |
-| Seating or unseating a chief executive | — | — | — | — | — | first only | yes |
+| | Visitor | Member | Client | Staff | R&D | Legal | Exec | CEO |
+|---|---|---|---|---|---|---|---|---|
+| Mission, share price, company chart, public projects | yes | yes | yes | yes | yes | yes | yes | yes |
+| Revenue, expenses, totals | yes | yes | yes | yes | yes | yes | yes | yes |
+| Change own password | — | yes | yes | yes | yes | yes | yes | yes |
+| Apply for a job | — | yes | yes | yes | yes | yes | yes | yes |
+| Read the open forum boards | yes | yes | yes | yes | yes | yes | yes | yes |
+| Post on the forum | — | yes | yes | yes | yes | yes | yes | yes |
+| Client lounge board | — | — | yes | yes | yes | yes | yes | yes |
+| Staff lounge board | — | — | — | yes | yes | yes | yes | yes |
+| Moderating the forum | — | — | — | — | — | — | yes | yes |
+| Rate card and the client desk | — | — | yes | yes | yes | yes | yes | yes |
+| Client-only projects, the full price table | — | — | yes | yes | yes | yes | yes | yes |
+| Balance sheet, internal staff notes | — | — | — | yes | yes | yes | yes | yes |
+| Incoming client requests | — | — | — | yes | yes | yes | yes | yes |
+| Shift log, transaction log, clocking in | — | — | — | yes | yes | yes | yes | yes |
+| Research files, and commenting | — | — | — | — | yes | yes | yes | yes |
+| The R&D department's remit on the chart | — | — | — | — | yes | yes | yes | yes |
+| Legal filings and templates, and commenting | — | — | — | — | — | yes | yes | yes |
+| Job applications and the hiring board | — | — | — | — | — | — | yes | yes |
+| Deleted records, and restoring one | — | — | — | — | — | — | yes | yes |
+| Editing anything, accounts, webhooks | — | — | — | — | — | — | yes | yes |
+| Editing the company chart in place | — | — | — | — | — | — | — | yes |
+| Moving the share price from the Share tab | — | — | — | — | — | — | — | yes |
+| Changing the share register | — | — | — | — | — | — | — | yes |
+| Deleting a legal filing or research file from its page | — | — | — | — | — | — | — | yes |
+| Seating or unseating a chief executive | — | — | — | — | — | — | first only | yes |
 
-**Legal** is a department rather than a promotion. It sees everything a staff
-member sees, plus the legal department's filings, which it can add to and comment
-on. It sees nothing an executive sees — no accounts, no webhooks, no hiring
-board, no control room. Give it to whoever does the company's legal work; it does
-not count as an executive for the "last executive" guard.
+**R&D** and **Legal** are departments rather than promotions. Each sees
+everything a staff member sees, plus its own department's files, which it can add
+to and comment on. Neither sees anything an executive sees — no accounts, no
+webhooks, no hiring board, no control room — and neither counts as an executive
+for the "last executive" guard.
 
-**Chief executive** sees exactly what an executive sees. It adds four things:
-unlocking the People chart to edit it in place, deleting a legal filing, posting
-a new share price from the Share tab without opening the control room, and
-control of its own seat.
+R&D sits one step below Legal, which means the legal department can read the
+research department's files and not the other way round. That is on purpose:
+legal has to see an acquisition before it can write the paperwork, and a
+researcher has no business in a dispute.
+
+**Chief executive** sees exactly what an executive sees. It adds five things:
+unlocking the People chart to edit it in place, deleting a legal filing or a
+research file, posting a new share price from the Share tab without opening the
+control room, changing the share register, and control of its own seat.
 
 The price control sits under the figures on **Share**. Type the price, press
 Record, and the old price becomes the previous close so the change figure works

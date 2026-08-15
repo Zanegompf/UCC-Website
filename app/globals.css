@@ -54,9 +54,18 @@ input:focus, textarea:focus, select:focus { border-color: #111C2E !important; }
 .ucc-org-branch { display: none; }
 
 @media (min-width: 768px) {
+  /* --ucc-template lets a branch weight its columns by how much hangs under
+     each child, so a subtree four divisions wide is not squeezed into the same
+     room as a block with nothing below it. The row and the strip above it MUST
+     resolve to the same template — the stubs are placed by laying out these
+     very columns, which is what puts each one over a card centre once there is
+     a gap between them. Change one, change the other. */
   .ucc-org-row,
   .ucc-org-branch {
-    grid-template-columns: repeat(var(--ucc-cols, 1), minmax(0, 1fr));
+    grid-template-columns: var(
+      --ucc-template,
+      repeat(var(--ucc-cols, 1), minmax(0, 1fr))
+    );
     gap: 20px;
   }
   .ucc-org-row { align-items: start; }

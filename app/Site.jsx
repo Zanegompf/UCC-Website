@@ -22,6 +22,13 @@ import {
   LEGAL_STATUS_DEFAULT,
   kindPlural,
 } from "@/lib/legal";
+import {
+  RESEARCH_KINDS,
+  RESEARCH_KIND_BLURBS,
+  RESEARCH_STATUSES,
+  RESEARCH_STATUS_DEFAULT,
+  researchPlural,
+} from "@/lib/research";
 import { ARCHIVE_KINDS, archiveLabel } from "@/lib/archive";
 import { FORUM_BOARDS, boardBy, lastActivity } from "@/lib/forum";
 import { readRegister } from "@/lib/shareholders";
@@ -81,15 +88,17 @@ const LEVEL = {
   member: 0,
   client: 1,
   staff: 2,
-  legal: 3,
-  exec: 4,
-  ceo: 5,
+  rnd: 3,
+  legal: 4,
+  exec: 5,
+  ceo: 6,
 };
 const ROLE_NAME = {
   public: "Visitor",
   member: "Member",
   client: "Client",
   staff: "Staff",
+  rnd: "Research",
   legal: "Legal",
   exec: "Executive",
   ceo: "Chief Executive",
@@ -98,7 +107,8 @@ const ROLE_BLURB = {
   member: "You have an account, but no company access yet. An executive can raise it.",
   client: "You can see the rate card, client projects and the request desk.",
   staff: "You can see the balance sheet, internal notes and incoming requests.",
-  legal: "Everything a staff member sees, plus the legal department's filings, which you can add to and comment on.",
+  rnd: "Everything a staff member sees, plus the research department's files — market research, competitor analysis and acquisition targets.",
+  legal: "Everything the research department sees, plus the legal department's filings, which you can add to and comment on.",
   exec: "You can edit the company record and manage accounts.",
   ceo: "Everything an executive can do, plus rearranging the company chart from the people page.",
 };
@@ -107,7 +117,8 @@ const ROLE_TABS = [
   { key: "member", label: "Member", hint: "Signed in, sees only public material" },
   { key: "client", label: "Client", hint: "Rate card, client projects, request desk" },
   { key: "staff", label: "Staff", hint: "Balance sheet, internal notes, requests" },
-  { key: "legal", label: "Legal", hint: "Staff, plus the legal department's filings" },
+  { key: "rnd", label: "R&D", hint: "Staff, plus the research department's files" },
+  { key: "legal", label: "Legal", hint: "R&D, plus the legal department's filings" },
   { key: "exec", label: "Exec", hint: "Full control of the company record" },
   { key: "ceo", label: "CEO", hint: "Exec, plus editing the chart in place" },
 ];
@@ -981,6 +992,39 @@ function operatingDivisions(divisions) {
  * The governing bodies are context, not the subject of the page, so they are
  * drawn tighter than a division and the type comes down a step.
  */
+/**
+ * A block's restricted remit — what it is actually for, as against the public
+ * description beside it.
+ *
+ * There is no level check here, and that is the point: `filterData` strips
+ * `remit` from every division below `rnd`, so a viewer who was not meant to
+ * read it does not have it to render. Testing the level here as well would be a
+ * second, weaker copy of the same decision — and the sort that quietly stops
+ * matching the real one.
+ */
+function OrgRemit({ remit, small }) {
+  if (!remit) return null;
+  return (
+    <div
+      className={small ? "mt-2 pt-2" : "mt-3 pt-3"}
+      style={{ borderTop: `1px dashed ${C.rule}` }}
+    >
+      <Eyebrow color={C.seal}>Remit — not shown below the department</Eyebrow>
+      <p
+        className="mt-1"
+        style={{
+          fontFamily: F.body,
+          fontSize: small ? 12.5 : 13.5,
+          color: C.ink,
+          lineHeight: 1.5,
+        }}
+      >
+        {remit}
+      </p>
+    </div>
+  );
+}
+
 function OrgGoverningCard({ d }) {
   return (
     <Panel tone="deep" style={{ padding: "13px 16px" }}>
@@ -1003,6 +1047,7 @@ function OrgGoverningCard({ d }) {
           {d.blurb}
         </p>
       )}
+      <OrgRemit remit={d.remit} small />
     </Panel>
   );
 }
@@ -1198,6 +1243,8 @@ function OrgPeopleCard({ d, members, governing, level, edit, hasChildren }) {
         </p>
       )}
 
+      <OrgRemit remit={d.remit} />
+
       <OrgMembers members={members} level={level} edit={edit} />
 
       {editing && (
@@ -1322,10 +1369,14 @@ function OrgStem({ height }) {
  *
  * Hidden on narrow screens, where the row stacks into one column instead.
  */
-function OrgBranch({ n }) {
+function OrgBranch({ n, template }) {
   const overhang = -(ORG_GAP / 2);
   return (
-    <div aria-hidden="true" className="ucc-org-branch" style={{ "--ucc-cols": n }}>
+    <div
+      aria-hidden="true"
+      className="ucc-org-branch"
+      style={{ "--ucc-cols": n, "--ucc-template": template }}
+    >
       {Array.from({ length: n }, (_, i) => (
         <div key={i} style={{ position: "relative", height: 26 }}>
           <div
@@ -1352,6 +1403,41 @@ function OrgBranch({ n }) {
       ))}
     </div>
   );
+}
+
+/**
+ * How wide a subtree is, in cards at its widest row.
+ *
+ * Used to weight a branch's columns. A leaf is 1; anything else is the sum of
+ * its children, which is what "how many cards have to fit side by side under
+ * this one" comes to.
+ *
+ * Carries the same `seen` guard as OrgNode, because `parent` is free text from
+ * the control room and a cycle would otherwise recurse forever here instead.
+ */
+function subtreeSpan(node, childrenOf, seen) {
+  if (!node || seen.has(node.name)) return 1;
+  const next = new Set(seen).add(node.name);
+  const kids = (childrenOf.get(node.name) || []).filter((k) => !next.has(k.name));
+  if (!kids.length) return 1;
+  return kids.reduce((sum, k) => sum + subtreeSpan(k, childrenOf, next), 0);
+}
+
+/**
+ * The grid template for a row of siblings, weighted by what hangs under each.
+ *
+ * Equal columns look right until one sibling carries a subtree and another
+ * carries nothing: the research department, which nothing reports to, would
+ * otherwise take half the chart and squeeze four trading divisions into the
+ * other half. Weighting by span gives each branch the room it actually needs.
+ *
+ * `minmax(0, Nfr)` rather than `Nfr`, or a long word in a narrow card would
+ * push its column past its share and drag the stubs off the card centres.
+ */
+function branchTemplate(kids, childrenOf, seen) {
+  return kids
+    .map((k) => `minmax(0, ${subtreeSpan(k, childrenOf, seen)}fr)`)
+    .join(" ");
 }
 
 /**
@@ -1404,8 +1490,14 @@ function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit
       {kids.length > 1 && (
         <>
           <OrgStem height={stem} />
-          <OrgBranch n={kids.length} />
-          <div className="ucc-org-row" style={{ "--ucc-cols": kids.length }}>
+          <OrgBranch n={kids.length} template={branchTemplate(kids, childrenOf, nextSeen)} />
+          <div
+            className="ucc-org-row"
+            style={{
+              "--ucc-cols": kids.length,
+              "--ucc-template": branchTemplate(kids, childrenOf, nextSeen),
+            }}
+          >
             {kids.map((k) => (
               <OrgNode key={k.name} node={k} spine={false} seen={nextSeen} {...pass} />
             ))}
@@ -3965,25 +4057,28 @@ function LegalTemplate({ template, onUse }) {
 }
 
 /**
- * The department talking about one filing.
+ * A department talking about one of its own documents.
  *
- * The thread lives on the filing rather than in Discord so that the argument
- * and the document it is about stay in one place — six months later nobody can
+ * The thread lives on the document rather than in Discord so that the argument
+ * and the thing it is about stay in one place — six months later nobody can
  * find the channel message that explained why a clause reads the way it does.
+ *
+ * Shared by the legal and research departments: both post
+ * `{action:"comment", id}` to their own route, and a comment is a comment.
  */
-function FilingComments({ filing, session, onSubmit }) {
+function EntryComments({ entry, session, onSubmit }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const comments = Array.isArray(filing.comments) ? filing.comments : [];
+  const comments = Array.isArray(entry.comments) ? entry.comments : [];
 
   const submit = async () => {
     if (!draft.trim() || busy) return;
     setBusy(true);
     setError("");
     try {
-      await onSubmit({ action: "comment", id: filing.id, body: draft });
+      await onSubmit({ action: "comment", id: entry.id, body: draft });
       setDraft("");
     } catch (e) {
       setError(e.message);
@@ -4188,7 +4283,7 @@ function LegalFiling({ filing, session, onSubmit, canDelete }) {
           has nothing to attach to without one. Say so rather than offering a
           box that would be refused. */}
       {filing.id ? (
-        <FilingComments filing={filing} session={session} onSubmit={onSubmit} />
+        <EntryComments entry={filing} session={session} onSubmit={onSubmit} />
       ) : (
         <p
           className="mt-4 pt-3"
@@ -4377,7 +4472,415 @@ function LegalDepartment({ data, level, session, onBack, onSubmitLegal }) {
   );
 }
 
-function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction, onSubmitLegal }) {
+/* ------------------------ the research department ------------------------ */
+
+/** Where a piece of work has got to. Gold while live, oxblood once dropped. */
+const RESEARCH_STATUS_TONE = {
+  Scoping: C.inkSoft,
+  "In progress": C.ink,
+  Watching: C.gold,
+  Approached: C.ledger,
+  Concluded: C.ink,
+  Dropped: C.seal,
+};
+
+/**
+ * Opens a research file of one particular kind.
+ *
+ * Like the legal modal, the kind is not a field on the form: each kind has its
+ * own section and its own button, so which one you pressed is the answer.
+ */
+function ResearchModal({ kind, onClose, onSubmit, session }) {
+  const [form, setForm] = useState({
+    title: "",
+    subject: "",
+    valuation: "",
+    status: RESEARCH_STATUS_DEFAULT,
+    detail: "",
+    author: session?.username || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const ready = form.title.trim();
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "file", kind, ...form });
+      onClose();
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
+  const upd = (k) => (v) => setForm({ ...form, [k]: v });
+
+  // What the two loose fields are called depends on the kind. A rival is not a
+  // "market" and a target's price is not a "size", and asking for the right
+  // thing is the difference between a useful file and a blank box.
+  const words = {
+    "Market research": {
+      subject: "Market",
+      subjectHint: "Redstone, freight, rented plots",
+      figure: "Size or value",
+      figureHint: "What the whole market is worth",
+    },
+    "Competitor analysis": {
+      subject: "Competitor",
+      subjectHint: "The firm, or the person behind it",
+      figure: "Their scale",
+      figureHint: "Turnover, shops, or how it compares to ours",
+    },
+    "Acquisition target": {
+      subject: "Target",
+      subjectHint: "The firm we might buy",
+      figure: "Asking or estimate",
+      figureHint: "What it would cost, or our estimate",
+    },
+  }[kind] || {
+    subject: "Subject",
+    subjectHint: "",
+    figure: "Figure",
+    figureHint: "",
+  };
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="p-7">
+        <Eyebrow color={C.gold}>Research and development</Eyebrow>
+        <h2 className="mt-2 mb-1" style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}>
+          New {kind.toLowerCase()}
+        </h2>
+        <p
+          className="mb-5"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
+        >
+          {RESEARCH_KIND_BLURBS[kind] || "Filed to the research department's record."}{" "}
+          The department can comment on it once it is filed.
+        </p>
+
+        <p
+          className="mb-5"
+          style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}
+        >
+          Stays inside the department. Nothing here is posted to Discord or shown
+          below the research department.
+        </p>
+
+        <Field
+          label="Title"
+          value={form.title}
+          onChange={upd("title")}
+          placeholder="Where the freight money actually is"
+        />
+        <div className="grid md:grid-cols-2 gap-x-5">
+          <Field
+            label={words.subject}
+            value={form.subject}
+            onChange={upd("subject")}
+            placeholder={words.subjectHint}
+          />
+          <Field
+            label={words.figure}
+            value={form.valuation}
+            onChange={upd("valuation")}
+            placeholder={words.figureHint}
+            hint="Text, not a number — “about 40 stacks a week” is a useful answer."
+          />
+          <Field
+            label="Status"
+            value={form.status}
+            onChange={upd("status")}
+            options={RESEARCH_STATUSES}
+          />
+          <Field label="Filed by" value={form.author} onChange={upd("author")} placeholder="Steve" />
+        </div>
+        <Field
+          label="Detail"
+          rows={6}
+          value={form.detail}
+          onChange={upd("detail")}
+          placeholder="What you found, how you found it, and what you think we should do about it."
+        />
+
+        {error && (
+          <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+            {error}
+          </p>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
+            {busy ? "Filing…" : "File it"}
+          </Btn>
+          <Btn onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** One research file, with its thread under it. */
+function ResearchFile({ file, session, onSubmit, canDelete }) {
+  // Arms first, like the legal delete and the chart's removals: the file and its
+  // thread are the only copy and retyping does not bring them back.
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit({ action: "delete", id: file.id });
+    } catch (e) {
+      setError(e.message);
+      setArmed(false);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel style={{ padding: 18 }}>
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>{file.ts}</span>
+        <span
+          style={{
+            fontFamily: F.mono,
+            fontSize: 9.5,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            padding: "3px 7px",
+            background: RESEARCH_STATUS_TONE[file.status] || C.inkSoft,
+            color: "#FFFFFF",
+          }}
+        >
+          {file.status || RESEARCH_STATUS_DEFAULT}
+        </span>
+        {file.author && (
+          <span style={{ fontFamily: F.body, fontSize: 12, color: C.inkSoft }}>
+            filed by {file.author}
+          </span>
+        )}
+
+        {/* A row typed in by hand in the control room has no id, so there is
+            nothing for the route to address. Those come off in the control
+            room instead. */}
+        {canDelete && file.id && (
+          <span className="ml-auto flex items-center gap-2">
+            {armed ? (
+              <>
+                <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.seal }}>
+                  Delete this file?
+                </span>
+                <OrgAction tone="seal" onClick={remove} title="Yes, take it off the record">
+                  {busy ? "…" : "Yes"}
+                </OrgAction>
+                <OrgAction onClick={() => setArmed(false)} title="Keep it">
+                  Keep
+                </OrgAction>
+              </>
+            ) : (
+              <OrgAction
+                tone="seal"
+                onClick={() => setArmed(true)}
+                title="Delete this file and its comments"
+              >
+                Delete
+              </OrgAction>
+            )}
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <p className="mb-2" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
+          {error}
+        </p>
+      )}
+
+      <h3 style={{ fontFamily: F.display, fontSize: 20, color: C.ink, lineHeight: 1.15 }}>
+        {file.title}
+      </h3>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-4">
+        {file.subject && (
+          <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.ledger }}>
+            {file.subject}
+          </span>
+        )}
+        {file.valuation && (
+          <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>
+            {file.valuation}
+          </span>
+        )}
+      </div>
+      {file.detail && (
+        <p
+          className="mt-2"
+          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
+        >
+          {file.detail}
+        </p>
+      )}
+
+      {file.id ? (
+        <EntryComments entry={file} session={session} onSubmit={onSubmit} />
+      ) : (
+        <p
+          className="mt-4 pt-3"
+          style={{
+            borderTop: `1px dashed ${C.rule}`,
+            fontFamily: F.body,
+            fontSize: 13,
+            color: C.inkSoft,
+          }}
+        >
+          This one was entered by hand and has no reference of its own, so it
+          cannot take comments. File it again from here if you need a thread on it.
+        </p>
+      )}
+    </Panel>
+  );
+}
+
+/**
+ * The research department's own page, reached from the staff room.
+ *
+ * One section per kind, like the legal department, because market research and
+ * an acquisition target are not the same job and one list of everything would
+ * mean reading all of it to find either.
+ */
+function ResearchDepartment({ data, level, session, onBack, onSubmitResearch }) {
+  const [filing, setFiling] = useState(null);
+  const [msg, setMsg] = useState("");
+
+  const byKind = useMemo(() => {
+    const map = new Map(RESEARCH_KINDS.map((k) => [k, []]));
+    // Newest first, matching the other boards.
+    for (const e of [...(data.research || [])].reverse()) {
+      if (!e) continue;
+      // A kind no longer offered still gets a section rather than vanishing.
+      if (!map.has(e.kind)) map.set(e.kind, []);
+      map.get(e.kind).push(e);
+    }
+    return map;
+  }, [data.research]);
+
+  const canDelete = level >= LEVEL.ceo;
+
+  const SENT = { comment: "Comment posted.", delete: "File deleted.", file: "Filed." };
+
+  const submit = async (payload) => {
+    await onSubmitResearch(payload);
+    setMsg(SENT[payload.action] || "Saved.");
+  };
+
+  const numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+  const kinds = [...byKind.keys()];
+
+  return (
+    <div className="space-y-10">
+      <Btn onClick={onBack}>← Staff room</Btn>
+
+      <section>
+        <SectionHead
+          title="Research and development"
+          note={
+            canDelete
+              ? "What the company is looking at, who it is up against, and who it might buy. Anyone in the department can comment; the thread stays with the file. You can also delete one — it and its comments go for good."
+              : "What the company is looking at, who it is up against, and who it might buy. Anyone in the department can comment; the thread stays with the file."
+          }
+        />
+        <Panel tone="deep" style={{ padding: 16, borderStyle: "dashed" }}>
+          <Eyebrow color={C.seal}>Inside the department</Eyebrow>
+          <p
+            className="mt-2"
+            style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink, lineHeight: 1.55 }}
+          >
+            None of this leaves the department. Staff and below are not sent it at
+            all, and nothing here is ever posted to Discord — this list names
+            firms that have not been approached and prices we have not offered.
+          </p>
+        </Panel>
+        {msg && (
+          <p className="mt-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.ledger }}>
+            {msg}
+          </p>
+        )}
+      </section>
+
+      {kinds.map((kind, i) => {
+        const list = byKind.get(kind) || [];
+        return (
+          <section key={kind}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <SectionHead
+                  index={numerals[i] || String(i + 1)}
+                  title={researchPlural(kind)}
+                  note={RESEARCH_KIND_BLURBS[kind]}
+                />
+              </div>
+              <div className="shrink-0 pt-1">
+                <Btn variant="solid" onClick={() => { setMsg(""); setFiling(kind); }}>
+                  New {kind.toLowerCase()}
+                </Btn>
+              </div>
+            </div>
+
+            {list.length === 0 ? (
+              <Panel tone="deep" style={{ padding: 20 }}>
+                <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft }}>
+                  Nothing filed under this heading yet.
+                </p>
+              </Panel>
+            ) : (
+              <div className="space-y-3">
+                {list.map((f) => (
+                  <ResearchFile
+                    key={f.id || f.ts + f.title}
+                    file={f}
+                    session={session}
+                    onSubmit={submit}
+                    canDelete={canDelete}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      <div>
+        <Btn onClick={onBack}>← Staff room</Btn>
+      </div>
+
+      {filing && (
+        <ResearchModal
+          kind={filing}
+          onClose={() => setFiling(null)}
+          onSubmit={submit}
+          session={session}
+        />
+      )}
+    </div>
+  );
+}
+
+function StaffRoom({
+  data,
+  level,
+  session,
+  onSubmitShift,
+  onSubmitTransaction,
+  onSubmitLegal,
+  onSubmitResearch,
+}) {
   const [clocking, setClocking] = useState(null); // "in" | "out" | null
   const [filed, setFiled] = useState("");
   const [showTransaction, setShowTransaction] = useState(false);
@@ -4386,6 +4889,7 @@ function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction, o
   // itself. Local, like the control room's pages: the staff room is in the
   // address, but which subpage you last opened is not worth a history entry.
   const [showLegal, setShowLegal] = useState(false);
+  const [showResearch, setShowResearch] = useState(false);
 
   // The hiring board is executive-only, which is also who may read accounts.
   const {
@@ -4427,6 +4931,11 @@ function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction, o
   // has already emptied of filings.
   const canSeeLegal = level >= LEVEL.legal;
 
+  // The research department's page is theirs, legal's and the executive's. A
+  // staff member does not get the button, because the server has already
+  // emptied `research` before it reached them.
+  const canSeeResearch = level >= LEVEL.rnd;
+
   if (showLegal && canSeeLegal) {
     return (
       <LegalDepartment
@@ -4439,20 +4948,50 @@ function StaffRoom({ data, level, session, onSubmitShift, onSubmitTransaction, o
     );
   }
 
+  if (showResearch && canSeeResearch) {
+    return (
+      <ResearchDepartment
+        data={data}
+        level={level}
+        session={session}
+        onBack={() => setShowResearch(false)}
+        onSubmitResearch={onSubmitResearch}
+      />
+    );
+  }
+
   return (
     <div className="space-y-10">
-      {canSeeLegal && (
-        <div>
-          <Btn variant="gold" onClick={() => setShowLegal(true)}>
-            Legal Department
-          </Btn>
-          <p
-            className="mt-2"
-            style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft }}
-          >
-            Contracts, court filings and licences, with the department's notes on
-            each.
-          </p>
+      {(canSeeLegal || canSeeResearch) && (
+        <div className="flex flex-wrap gap-x-10 gap-y-5">
+          {canSeeLegal && (
+            <div>
+              <Btn variant="gold" onClick={() => setShowLegal(true)}>
+                Legal Department
+              </Btn>
+              <p
+                className="mt-2 max-w-sm"
+                style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft }}
+              >
+                Contracts, court filings and licences, with the department's notes
+                on each.
+              </p>
+            </div>
+          )}
+          {canSeeResearch && (
+            <div>
+              <Btn variant="gold" onClick={() => setShowResearch(true)}>
+                Research &amp; Development
+              </Btn>
+              <p
+                className="mt-2 max-w-sm"
+                style={{ fontFamily: F.body, fontSize: 12.5, color: C.inkSoft }}
+              >
+                Market research, competitor analysis and acquisition targets. Does
+                not leave the department.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -5415,6 +5954,7 @@ function RolePicker({ role, onPick, locked, lockedReason, busy }) {
     ceo: C.gold,
     exec: C.seal,
     legal: C.night,
+    rnd: C.night,
     staff: C.ledger,
     client: C.ink,
   };
@@ -5625,7 +6165,7 @@ function Accounts({ session }) {
         <Field
           label="Access"
           value={form.role}
-          options={["member", "client", "staff", "legal", "exec"]}
+          options={["member", "client", "staff", "rnd", "legal", "exec"]}
           onChange={(v) => setForm({ ...form, role: v })}
         />
       </div>
@@ -5672,6 +6212,11 @@ const DELETED_SUMMARY = {
   legalFilings: (e) => ({
     title: e.title,
     meta: [e.kind, e.status, e.party && "with " + e.party, e.reference].filter(Boolean),
+    detail: e.detail,
+  }),
+  research: (e) => ({
+    title: e.title,
+    meta: [e.kind, e.status, e.subject, e.valuation].filter(Boolean),
     detail: e.detail,
   }),
   requests: (e) => ({
@@ -5829,9 +6374,9 @@ function DeletedRecords({ data, onRestore }) {
         )}
         <Panel tone="deep" style={{ padding: 20 }}>
           <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
-            Nothing has been deleted. When somebody removes an application, a legal
-            filing, a client request, a project or a forum post, what it said is
-            kept here.
+            Nothing has been deleted. When somebody removes an application, a
+            legal filing, a research file, a client request, a project or a forum
+            post, what it said is kept here.
           </p>
         </Panel>
       </div>
@@ -6252,6 +6797,48 @@ function ControlRoom({ data, save, level, session, onRestore }) {
       ),
     },
     {
+      key: "research",
+      label: "Research files",
+      blurb: "Market research, competitor analysis and acquisition targets.",
+      note: "The research department files these on its own page in the staff room. Correcting one here does not touch its comments. This page is executive-only like the rest of the control room, but the material is the department's — think twice before pasting any of it anywhere else.",
+      count: (data.research || []).length,
+      body: (
+        <ListEditor
+          title="Research files"
+          items={data.research || []}
+          blank={{
+            ts: "",
+            kind: RESEARCH_KINDS[0],
+            title: "",
+            subject: "",
+            valuation: "",
+            status: RESEARCH_STATUS_DEFAULT,
+            detail: "",
+            author: "",
+            comments: [],
+          }}
+          onChange={(v) => set("research", v)}
+          fields={[
+            { k: "title", label: "Title", full: true },
+            { k: "kind", label: "Kind", options: RESEARCH_KINDS },
+            { k: "status", label: "Status", options: RESEARCH_STATUSES },
+            { k: "subject", label: "Subject" },
+            { k: "valuation", label: "Figure" },
+            { k: "detail", label: "Detail", full: true, rows: 3 },
+          ]}
+          footer={(f) => (
+            <p
+              className="mb-3"
+              style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft }}
+            >
+              {(Array.isArray(f.comments) ? f.comments.length : 0) + " comment(s)"}
+              {f.id ? "" : " · no reference, so it cannot take comments"}
+            </p>
+          )}
+        />
+      ),
+    },
+    {
       key: "legalTemplates",
       label: "Legal templates",
       blurb: "The boilerplate the legal department drafts from.",
@@ -6324,7 +6911,7 @@ function ControlRoom({ data, save, level, session, onRestore }) {
       key: "deleted",
       label: "Deleted records",
       blurb:
-        "Applications, legal filings, client requests and projects that have been removed.",
+        "Applications, legal filings, research files, client requests and projects that have been removed.",
       note: "What each one said when it was deleted, newest first. Restore puts it back keeping the date it was originally filed — at the end of its list, except a forum reply, which goes back in sequence in its thread. Restoring a thread brings its replies with it. The last 200 deletions are held, then the oldest fall off.",
       count: (data.deleted || []).length,
       body: <DeletedRecords data={data} onRestore={onRestore} />,
@@ -7153,6 +7740,15 @@ export default function App() {
     [load]
   );
 
+  // The research department's files, the same shape as the legal route.
+  const submitResearch = useCallback(
+    async (payload) => {
+      await api("/api/research", { method: "POST", body: JSON.stringify(payload) });
+      await load();
+    },
+    [load]
+  );
+
   // Threads, replies, and an executive's moderation all go through here — the
   // route takes an `action`, the way the legal department does.
   const submitForum = useCallback(
@@ -7378,6 +7974,7 @@ export default function App() {
             onSubmitShift={submitShift}
             onSubmitTransaction={submitTransaction}
             onSubmitLegal={submitLegal}
+            onSubmitResearch={submitResearch}
           />
         )}
         {tab === "Control room" && (

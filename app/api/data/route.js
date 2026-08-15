@@ -38,6 +38,7 @@ const EDITABLE = [
   "applications",
   "legalFilings",
   "legalTemplates",
+  "research",
   "forum",
   "jobs",
   "discord",
