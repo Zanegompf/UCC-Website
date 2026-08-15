@@ -68,8 +68,27 @@ input:focus, textarea:focus, select:focus { border-color: #111C2E !important; }
     );
     gap: 20px;
   }
-  .ucc-org-row { align-items: start; }
   .ucc-org-branch { display: grid; }
+
+  /* A branch row is two tracks, not one box per child: every card sits in the
+     first, every subtree in the second. That is what stops a short block's
+     children running through the taller block beside it — the second track
+     cannot start until the first has ended. `display: contents` is how one
+     child contributes to both tracks. Row gap is zero because the stem at the
+     top of a subtree already provides the space. */
+  .ucc-org-node { display: contents; }
+  .ucc-org-row { row-gap: 0; }
+  .ucc-org-card-cell {
+    grid-column: var(--ucc-col, auto);
+    grid-row: 1;
+    align-self: stretch;   /* siblings end up the same height */
+  }
+  .ucc-org-sub-cell {
+    grid-column: var(--ucc-col, auto);
+    grid-row: 2;
+    align-self: start;
+    min-width: 0;
+  }
 
   /* A subtree allowed to run past its own column, so its parent's card can stay
      the same size as the blocks beside it. Only ever applied to a child whose

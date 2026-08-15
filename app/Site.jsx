@@ -1027,7 +1027,10 @@ function OrgRemit({ remit, small }) {
 
 function OrgGoverningCard({ d }) {
   return (
-    <Panel tone="deep" style={{ padding: "13px 16px" }}>
+    // height:100% so that when this card sits in a branch row it fills the
+    // row's card track, and two blocks at the same level end up the same size
+    // whatever their descriptions run to.
+    <Panel tone="deep" style={{ padding: "13px 16px", height: "100%" }}>
       <h3
         style={{
           fontFamily: F.display,
@@ -1447,7 +1450,7 @@ function branchTemplate(kids, childrenOf, seen) {
  * one narrow centred column so the board, the committee and the department
  * line up rather than stretching across the page.
  */
-function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit, breakout }) {
+function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit, breakout, cell }) {
   // An executive can type any name into `parent`, so a cycle is reachable from
   // the control room. Stop rather than recurse forever.
   if (seen.has(node.name)) return null;
@@ -1493,9 +1496,63 @@ function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit
       ? { "--ucc-span": breakout.cols, "--ucc-offset": breakout.index }
       : undefined;
 
+  /**
+   * When this node is one column of a branch row it does not render as a single
+   * box. The card goes in the row's first track and the subtree in its second,
+   * so **every subtree starts below every card** — otherwise a short block's
+   * children run straight through the taller block beside it, which is what a
+   * research department with four people in it did to the divisions row.
+   *
+   * `display: contents` on the wrapper is what lets both halves be grid items
+   * of the row rather than of a box inside it. It is desktop-only, so on a
+   * phone the wrapper is an ordinary block and the row simply stacks.
+   */
+  const cellVars = cell ? { "--ucc-col": cell.index + 1 } : undefined;
+
+  const subtree =
+    kids.length === 0 ? null : (
+      <div className={cell ? "ucc-org-sub-cell" : undefined} style={cellVars}>
+        <OrgStem height={stem} />
+        {kids.length === 1 ? (
+          <OrgNode node={kids[0]} spine={spine} seen={nextSeen} {...pass} />
+        ) : (
+          // The stem above stays in this node's own column so it drops from the
+          // middle of the card; only the strip and the row break out.
+          <div className={wide ? "ucc-org-wide" : undefined} style={wide}>
+            <OrgBranch n={kids.length} template={template} />
+            <div
+              className="ucc-org-row"
+              style={{ "--ucc-cols": kids.length, "--ucc-template": template }}
+            >
+              {kids.map((k, i) => (
+                <OrgNode
+                  key={k.name}
+                  node={k}
+                  spine={false}
+                  seen={nextSeen}
+                  cell={{ index: i }}
+                  breakout={
+                    aside && spans[i] > 1 ? { cols: kids.length, index: i } : null
+                  }
+                  {...pass}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+
   return (
-    <div>
-      <div style={spine ? { maxWidth: spineWidth, margin: "0 auto" } : undefined}>
+    <div className={cell ? "ucc-org-node" : undefined}>
+      <div
+        className={cell ? "ucc-org-card-cell" : undefined}
+        style={
+          spine
+            ? { maxWidth: spineWidth, margin: "0 auto" }
+            : cellVars
+        }
+      >
         {people ? (
           <OrgPeopleCard
             d={node}
@@ -1510,41 +1567,7 @@ function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit
         )}
       </div>
 
-      {kids.length === 1 && (
-        <>
-          <OrgStem height={stem} />
-          <OrgNode node={kids[0]} spine={spine} seen={nextSeen} {...pass} />
-        </>
-      )}
-
-      {kids.length > 1 && (
-        <>
-          <OrgStem height={stem} />
-          {/* The stem stays in this node's own column so it drops from the
-              middle of the card; only the strip and the row below it break out
-              when they are allowed to. */}
-          <div className={wide ? "ucc-org-wide" : undefined} style={wide}>
-            <OrgBranch n={kids.length} template={template} />
-            <div
-              className="ucc-org-row"
-              style={{ "--ucc-cols": kids.length, "--ucc-template": template }}
-            >
-              {kids.map((k, i) => (
-                <OrgNode
-                  key={k.name}
-                  node={k}
-                  spine={false}
-                  seen={nextSeen}
-                  breakout={
-                    aside && spans[i] > 1 ? { cols: kids.length, index: i } : null
-                  }
-                  {...pass}
-                />
-              ))}
-            </div>
-          </div>
-        </>
-      )}
+      {subtree}
     </div>
   );
 }

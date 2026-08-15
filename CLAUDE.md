@@ -356,6 +356,17 @@ once a gap exists — if you change the gap in `globals.css`, change `ORG_GAP` i
 `Site.jsx` to match. Below 768px the row stacks and the strip is hidden, since
 its geometry assumes one column per child.
 
+**A branch row is two tracks, not one box per child.** Every card sits in the
+first track and every subtree in the second, so a subtree cannot start until
+every card in the row has ended. Without that, a short block's children run
+straight *through* the taller block beside it — which is what happened the
+moment the research department had four people in it and the divisions row
+crossed its card. `display: contents` on the child wrapper is what lets one node
+contribute to both tracks; the card track is `align-self: stretch`, so two
+blocks at the same level also come out the same height whatever their contents.
+It is inside the `min-width: 768px` query — below that the wrapper is an
+ordinary block and the row stacks, where none of this applies.
+
 **A branch where one child carries a subtree and the rest are leaves gets equal
 columns, and the subtree runs the full width underneath** (`.ucc-org-wide`, set
 from `breakout` in `OrgNode`). This shape has two obvious layouts and both are
