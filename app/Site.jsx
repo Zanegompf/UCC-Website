@@ -1447,7 +1447,7 @@ function branchTemplate(kids, childrenOf, seen) {
  * one narrow centred column so the board, the committee and the department
  * line up rather than stretching across the page.
  */
-function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit }) {
+function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit, breakout }) {
   // An executive can type any name into `parent`, so a cycle is reachable from
   // the control room. Stop rather than recurse forever.
   if (seen.has(node.name)) return null;
@@ -1462,6 +1462,36 @@ function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit
   const stem = people ? 26 : governing ? 16 : 26;
 
   const pass = { childrenOf, people, membersOf, level, edit };
+
+  const spans = kids.map((k) => subtreeSpan(k, childrenOf, nextSeen));
+
+  /**
+   * One department carrying a subtree, with leaves beside it.
+   *
+   * That shape used to force a choice between two bad layouts. Equal columns
+   * squeezed four trading divisions into half the page; columns weighted by
+   * what hangs under each left the two department cards obviously mismatched —
+   * one a wide short bar, the other a narrow tall block, which is not how two
+   * blocks at the same level of a chart should read.
+   *
+   * So: every card gets the same column, and the one subtree runs the full
+   * width underneath. That is sound rather than a trick — a leaf column has
+   * nothing below it for the row to collide with. It is also the ordinary way
+   * a chart draws a unit that reports straight up and has nobody under it.
+   *
+   * With more than one child carrying a subtree there is nowhere to break out
+   * to, so those fall back to weighted columns.
+   */
+  const aside = kids.length > 1 && spans.filter((s) => s > 1).length <= 1;
+  const template = aside ? undefined : branchTemplate(kids, childrenOf, nextSeen);
+
+  // Set by the parent when this node is the one allowed to run wide. The gap is
+  // added back per column crossed, and the offset walks left to the row's edge
+  // so a heavy child that is not the first still starts in the right place.
+  const wide =
+    breakout && breakout.cols > 1
+      ? { "--ucc-span": breakout.cols, "--ucc-offset": breakout.index }
+      : undefined;
 
   return (
     <div>
@@ -1490,17 +1520,28 @@ function OrgNode({ node, childrenOf, spine, seen, people, membersOf, level, edit
       {kids.length > 1 && (
         <>
           <OrgStem height={stem} />
-          <OrgBranch n={kids.length} template={branchTemplate(kids, childrenOf, nextSeen)} />
-          <div
-            className="ucc-org-row"
-            style={{
-              "--ucc-cols": kids.length,
-              "--ucc-template": branchTemplate(kids, childrenOf, nextSeen),
-            }}
-          >
-            {kids.map((k) => (
-              <OrgNode key={k.name} node={k} spine={false} seen={nextSeen} {...pass} />
-            ))}
+          {/* The stem stays in this node's own column so it drops from the
+              middle of the card; only the strip and the row below it break out
+              when they are allowed to. */}
+          <div className={wide ? "ucc-org-wide" : undefined} style={wide}>
+            <OrgBranch n={kids.length} template={template} />
+            <div
+              className="ucc-org-row"
+              style={{ "--ucc-cols": kids.length, "--ucc-template": template }}
+            >
+              {kids.map((k, i) => (
+                <OrgNode
+                  key={k.name}
+                  node={k}
+                  spine={false}
+                  seen={nextSeen}
+                  breakout={
+                    aside && spans[i] > 1 ? { cols: kids.length, index: i } : null
+                  }
+                  {...pass}
+                />
+              ))}
+            </div>
           </div>
         </>
       )}

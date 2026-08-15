@@ -70,6 +70,20 @@ input:focus, textarea:focus, select:focus { border-color: #111C2E !important; }
   }
   .ucc-org-row { align-items: start; }
   .ucc-org-branch { display: grid; }
+
+  /* A subtree allowed to run past its own column, so its parent's card can stay
+     the same size as the blocks beside it. Only ever applied to a child whose
+     siblings are leaves, which have nothing underneath to collide with. Both
+     percentages resolve against the column, so the span adds a gap per column
+     crossed and the offset walks back to the row's left edge.
+     Desktop only: below 768px the row is one column and there is nothing to
+     break out of — running wide there would just overflow the page. */
+  .ucc-org-wide {
+    width: calc(
+      var(--ucc-span, 1) * 100% + (var(--ucc-span, 1) - 1) * 20px
+    );
+    margin-left: calc(-1 * var(--ucc-offset, 0) * (100% + 20px));
+  }
 }
 
 .ucc-hub:hover span:first-child { color: #9B3630; }

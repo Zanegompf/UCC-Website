@@ -356,15 +356,29 @@ once a gap exists — if you change the gap in `globals.css`, change `ORG_GAP` i
 `Site.jsx` to match. Below 768px the row stacks and the strip is hidden, since
 its geometry assumes one column per child.
 
-**A branch's columns are weighted by what hangs under each child**, through
-`--ucc-template` and `branchTemplate()`/`subtreeSpan()`. Equal columns were fine
-while the committee had one child; the moment the research department was added
-beside the Legal Department, an even split gave a block with nothing under it
-the same half of the page as a subtree four divisions wide, and squeezed those
-four to 90px. The weight is the subtree's width in cards at its widest row. It
-uses `minmax(0, Nfr)`, or a long word in a narrow card pushes its column past its
-share and drags the stubs off the card centres. `subtreeSpan` carries the same
-`seen` cycle guard as `OrgNode`, for the same reason.
+**A branch where one child carries a subtree and the rest are leaves gets equal
+columns, and the subtree runs the full width underneath** (`.ucc-org-wide`, set
+from `breakout` in `OrgNode`). This shape has two obvious layouts and both are
+wrong: equal columns alone squeeze four trading divisions into half the page,
+and columns weighted by what hangs under each leave the two department cards
+plainly mismatched — one a wide short bar, the other a narrow tall block, which
+is not how two blocks at the same level should read. Breaking out is sound
+rather than a trick: a leaf column has nothing below it to collide with, and it
+is the ordinary way a chart draws a unit that reports straight up with nobody
+under it. The stem stays in the parent's own column so it still drops from the
+middle of the card; only the strip and the row break out.
+
+The width is exact, not approximate: `N * 100% + (N-1) * gap` where `100%` is
+one column comes to the row's own width, so it can never overflow. It is inside
+the `min-width: 768px` query — below that the row is a single column and there
+is nothing to break out of.
+
+**When more than one child carries a subtree there is nowhere to break out to,
+and those fall back to columns weighted by `branchTemplate()`/`subtreeSpan()`** —
+the subtree's width in cards at its widest row. That path uses `minmax(0, Nfr)`,
+or a long word in a narrow card pushes its column past its share and drags the
+stubs off the card centres. `subtreeSpan` carries the same `seen` cycle guard as
+`OrgNode`, for the same reason.
 
 **The research department reports to the Executive Committee directly**, not
 through the Legal Department the trading divisions hang off, and nothing reports
