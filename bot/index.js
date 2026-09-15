@@ -21,7 +21,6 @@ const {
   DISCORD_GUILD_ID,
   SITE_URL,
   BOT_API_KEY,
-  STAFF_ROLE_ID,
   EXEC_ROLE_ID,
 } = process.env;
 
@@ -29,7 +28,6 @@ const INK = 0x10233f;
 const LEDGER = 0x1e6a4f;
 const SEAL = 0x8c2f2a;
 
-const money = (n) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const compact = (n) => {
   const v = Number(n) || 0;
   if (Math.abs(v) >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
@@ -65,7 +63,6 @@ const commands = [
   new SlashCommandBuilder().setName("mission").setDescription("What the company is for"),
   new SlashCommandBuilder().setName("staff").setDescription("Who works here and what they do"),
   new SlashCommandBuilder().setName("projects").setDescription("What the company is building"),
-  new SlashCommandBuilder().setName("finances").setDescription("Latest month's figures (staff only)"),
   new SlashCommandBuilder()
     .setName("setprice")
     .setDescription("Record a new share price (executives only)")
@@ -124,8 +121,7 @@ client.on("interactionCreate", async (interaction) => {
         .addFields(
           { name: "Change", value: `${up ? "+" : ""}${change.toFixed(2)}`, inline: true },
           { name: "Market capital", value: compact(s.price * s.shares), inline: true },
-          { name: "Shares issued", value: s.shares.toLocaleString("en-US"), inline: true },
-          { name: "Book value per share", value: "$" + (d.financials.equity / s.shares).toFixed(2), inline: true }
+          { name: "Shares issued", value: s.shares.toLocaleString("en-US"), inline: true }
         )
         .setFooter({ text: `Last posted ${s.updated} · ${d.company.exchange}` });
       return interaction.editReply({ embeds: [embed] });
@@ -162,26 +158,6 @@ client.on("interactionCreate", async (interaction) => {
           value: `${p.status}, target ${p.target}\n${p.summary}`,
         });
       });
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    if (name === "finances") {
-      if (!hasRole(interaction, STAFF_ROLE_ID) && !hasRole(interaction, EXEC_ROLE_ID)) {
-        return interaction.editReply("Staff only. Ask an executive for the role.");
-      }
-      const d = await siteGet("staff");
-      const p = d.financials.periods[d.financials.periods.length - 1] || {};
-      const net = (p.revenue || 0) - (p.expenses || 0);
-      const embed = new EmbedBuilder()
-        .setTitle(`The books — ${p.label || "latest"}`)
-        .setColor(net >= 0 ? LEDGER : SEAL)
-        .addFields(
-          { name: "Revenue", value: money(p.revenue), inline: true },
-          { name: "Expenses", value: money(p.expenses), inline: true },
-          { name: "Net", value: money(net), inline: true },
-          { name: "Total assets", value: money(d.financials.assets), inline: true },
-          { name: "Equity", value: money(d.financials.equity), inline: true }
-        );
       return interaction.editReply({ embeds: [embed] });
     }
 

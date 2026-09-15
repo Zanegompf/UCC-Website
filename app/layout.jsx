@@ -4,7 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 export const metadata = {
   title: "The United Commerce Corporation",
   description:
-    "Share price, financial record, staff and projects of United Commerce (UCC), a company on the DemocracyCraft server.",
+    "Share price, shareholders, staff and projects of United Commerce (UCC), a company on the DemocracyCraft server.",
 };
 
 export default function RootLayout({ children }) {

@@ -60,9 +60,6 @@ app/
     shareholders/   POST body.action "save" — the whole share register, **ceo
                     only**. The one route whose gate is the whole story; see
                     "The share register"
-    forum/          POST body.action "thread" | "reply" | "lock" | "delete".
-                    Posting needs an account and the board's level; lock and
-                    delete are exec
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
@@ -71,15 +68,13 @@ lib/
   seed.js           SEED record + ensureData() first-run/migration
   auth.js           hash, verify, session cookie
   roles.js          LEVEL, ASSIGNABLE_ROLES, filterData(), effectiveRole()
-  forum.js          FORUM_BOARDS and boardMin(). A board's `min` is a role name,
-                    so filterData gates it the same way it gates a project
   research.js       RESEARCH_KINDS/_BLURBS/_PLURALS, RESEARCH_STATUSES,
                     researchPlural(). The same shape as lib/legal.js, for the
                     same reason: constants both the route and Site.jsx import
   legal.js          LEGAL_KINDS/_BLURBS/_PLURALS, LEGAL_STATUSES, kindPlural().
                     Constants only, so unlike HOOK_EVENTS it is imported by both
                     the route and Site.jsx rather than mirrored
-  shareholders.js   EMPTY_REGISTER, SHARE_CLASSES, readRegister(), totalHeld().
+  shareholders.js   EMPTY_REGISTER, readRegister(), totalHeld().
                     Constants and normalising only, like lib/legal.js, so the
                     route and Site.jsx share them. The slice colours are not
                     here — they live with the rest of the palette in Site.jsx
@@ -100,8 +95,8 @@ bot/
 **Permissions are enforced server-side, in `lib/roles.js`, before data leaves the
 process.** The UI mirrors the decision; it never makes it.
 
-- `filterData(data, level)` strips: `users` and `codes` always; the balance
-  sheet, internal staff notes, client requests and the shift log below staff;
+- `filterData(data, level)` strips: `users` and `codes` always; internal staff
+  notes, client requests, the shift log and the transaction book below staff;
   the research department's files **and every division's `remit`** below rnd;
   the legal department's filings below legal; the rate card below client; the
   Discord webhooks **and job applications** below exec; plus projects and
@@ -111,8 +106,12 @@ process.** The UI mirrors the decision; it never makes it.
 - Below exec it **replaces `discord` wholesale** with `{channel}` rather than
   deleting named keys. That is what keeps every URL in `hooks[]` off the wire as
   the list grows — do not soften it into `delete d.discord.webhook`.
-- It always computes and attaches `financials.assets` and `financials.equity`,
-  because public-facing stat cards need the totals without the breakdown.
+- It **deletes `forum`, `financials` and `shareholders.equity` outright.** Those
+  three features were removed from the site, but a record written while they
+  existed still carries them and nothing purges the stored blob. Two of them were
+  gated — the balance sheet stopped at staff, a thread was gated by its board —
+  so dropping the gates without deleting the data would have published both.
+  Strip a retired field here; do not merely stop reading it.
 - `effectiveRole(data, session)` reads the role from the **stored account**, not
   from the JWT. This is deliberate and load-bearing: cookies live a week, so
   trusting the role inside one meant a demoted or deleted user kept their access
@@ -150,8 +149,6 @@ whether the request gets that far at all. It is not a substitute for the above.
 | applications | 5 / hour per account | all |
 | legal filings and comments | 40 / hour per account | all |
 | research files and comments | 40 / hour per account | all |
-| forum threads | 10 / hour per account | all |
-| forum replies | 40 / hour per account | all |
 | restoring a deleted row | 20 / hour per account | all |
 | saving the share register | 60 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
@@ -258,9 +255,8 @@ divisions[]{name,code,parent,lead,blurb,remit?}   <- a tree; see below.
 research[]{id,ts,kind,title,subject,valuation,status,detail,author,account,
            comments[]{ts,author,body,account}}    <- stripped below rnd
 stock{price,prevClose,shares,listed,updated,history[]{label,price}}
-shareholders{voterShares, equity[]{id,name,shares}, voters[]{id,name,shares}}
+shareholders{voterShares, voters[]{id,name,shares}}
                                                    <- ceo-only, NOT in EDITABLE
-financials{periods[]{label,revenue,expenses}, balance{cash,inventory,property,investments,liabilities}, note}
 staff[]{name,role,dept,joined,note,internal}    <- dept: comma-separated block names
 projects[]{name,status,visibility,progress,target,summary}
 services[]{name,price,detail}
@@ -272,8 +268,6 @@ applications[]{ts,username,discord,role,wage,experience,references,notes,status,
 legalFilings[]{id,ts,kind,title,party,reference,status,detail,author,account,
                comments[]{ts,author,body,account}}   <- id is load-bearing; see below
 legalTemplates[]{id,ts,name,kind,body,notes,author,account}   <- legal+ writes these
-forum[]{id,ts,board,title,body,author,account,locked,
-        replies[]{id,ts,author,body,account}}   <- `board` decides who may read it
 deleted[]{id,kind,label,ts,by,entry{...}}   <- server-managed, NOT in EDITABLE
 jobs[]{name,category}                              <- public; the dropdown reads it
 discord{webhook,channel,guild,hooks[]{name,url,channel,events}}
@@ -313,6 +307,11 @@ Each tab is a slug in the URL hash — `#staff-room`, `#client-desk` — so a
 refresh, a bookmark or a pasted link all land on the same tab instead of
 dropping back to the overview. `TABS` in `Site.jsx` is the single source for the
 names, their slugs and the level each needs; the visible nav is derived from it.
+
+A hash naming a tab that no longer exists — `#ucc-forum`, `#financials` — simply
+finds nothing in `TAB_NAMES` and the page stays on the landing tab. Old links
+therefore degrade to the overview rather than to a blank screen; that falls out
+of `tabFromHash` returning null and needs no special case.
 
 The hash is used rather than real routes because the whole site is one client
 component behind a single page. Giving each tab a route would mean splitting
@@ -475,25 +474,20 @@ stays editable, since the common case is posting today's close.
 
 ## The share register
 
-Sections **III and IV** of the share page: two pie charts, one for equity
-shareholders and one for voter shareholders. The full price record moved down to
-**V** to make room.
+Section **III** of the share page: one pie chart of the voter shareholders,
+with the full price record at **IV**.
 
-### Two classes, two denominators
+### One class, one denominator
 
-`shareholders.equity[]` and `shareholders.voters[]` are separate lists, not one
-list with a flag — a holder usually appears in both with different numbers, and
-money and control are different things.
+There used to be two — an equity register counted against `stock.shares`, drawn
+at III, and the voters at IV. Equity was removed; what is left is votes.
 
-**Equity is counted against `stock.shares`.** That is the existing "Shares
-issued" figure the market capital and the book value per share are already
-worked out from, so the register cannot disagree with the hero. The editor's
-"Total shares issued" writes it, through the same route. **Votes are counted
-against `shareholders.voterShares`**, which is the register's own, because
-nothing else on the record knows how many votes exist.
-
-Do not give equity its own total. Two share counts is exactly the shape the caps
-were in before they were pulled into `lib/caps.js`.
+**Votes are counted against `shareholders.voterShares`**, which is the
+register's own total, because nothing else on the record knows how many votes
+exist. `stock.shares` still exists and the market capital is still price ×
+shares, but the register no longer counts against it and
+`/api/shareholders` no longer writes it — the issued share count is the control
+room's field alone. Do not reconnect the two.
 
 ### Who may write it
 
@@ -516,19 +510,15 @@ reads it. The register — who holds what — is out of reach.
 
 **Public, decided in `filterData` by not stripping it.** Who owns a listed
 company is what a share register is for, and the share page is the public
-investor page. Note the equity chart's hidden names are a *reading* decision made
-in the browser and not a permission: anybody can hover. If it ever needs to be
-restricted, gate it in `filterData` — hiding it in `Site.jsx` would only hide
-what was still sent.
+investor page. If it ever needs to be restricted, gate it in `filterData` —
+hiding it in `Site.jsx` would only hide what was still sent.
 
-### The charts
+### The chart
 
-- **Equity (III) names nobody.** Wedges carry a percentage and nothing else; the
-  holder appears on hover, with the share of the company. That was asked for
-  directly, and it is why this chart has no table under it — a legend would give
-  the names straight back.
-- **Voter (IV) names everybody**, inside the wedge, with a table beside it
-  carrying every row including the ones too small to label.
+**It names everybody**, inside the wedge, with a table beside it carrying every
+row including the ones too small to label. `RegisterPie` used to take a `names`
+flag, false for the equity chart, which gave its holders up only on hover; with
+that chart gone the flag went too.
 
 `SHARE_SLICES` in `Site.jsx` is five colours, built in OKLCH against the paper
 surface and **checked with a validator rather than by eye** — lightness band,
@@ -542,14 +532,15 @@ wedge. If you add a colour, re-run the validator.
 label sits on is `2πr × the slice's share`, and the label needs about 6.4px per
 character; a wedge that cannot hold its text gets none. A fixed floor gets this
 wrong both ways — a long name crosses three wedges at 10% while a short one had
-room at 6%, and the voter chart sits in half a column, so it has less arc for the
-same percentage than the equity chart does. What is dropped is still on the
-tooltip, and on the voter table.
+room at 6%, and the chart sits in half a column beside its table, so it has less
+arc for the same percentage than a full-width one would. What is dropped is still
+on the tooltip, and on the table.
 
 ### The hammer
 
 Same idiom as the People tab: a 🔨 that shows only at `ceo`, on section III,
-opening an editor for both classes at once.
+opening the editor. It sat on the equity section until that was removed, and
+moved here with the register.
 
 It holds a **draft** rather than saving as you type. Both charts read the draft
 while it is open, so a holding moves the pie as it is typed — that is the point
@@ -801,81 +792,35 @@ actually read. If deletion should be genuinely ceo-exclusive, `legalFilings` has
 to come out of `EDITABLE` — which also takes away the exec's ability to correct a
 filing, so it is a trade rather than a fix.
 
-## The forum
-
-A tab of its own (`#ucc-forum`), sitting after the control room and before the
-account tab. Three views behind it — boards, a board's threads, one thread —
-held in **local state, not the address**, the same as the control room's pages.
-
-**A board is gated exactly like a project.** `FORUM_BOARDS` in `lib/forum.js`
-gives each one a `min` using the same role names, and `filterData` drops any
-thread whose board outranks the viewer. Adding a board is one entry there; it
-appears on the index, in the pickers and in the gate together.
-
-`boardMin()` answers **`exec` for a board it does not recognise**, so this gate
-fails closed. A thread whose board was renamed or removed goes quiet and waits
-for an executive, rather than falling open to everybody because its key stopped
-matching. That is the opposite of the `dept` behaviour on the People tab, and
-deliberately so: one is a permission, the other is a tidiness problem.
-
-**Reading takes no account; posting always does.** Like `applications`, the post
-path checks `effectiveRole(...) !== "public"` rather than a level, because
-`member` sits at level 0 and must be able to post. The account requirement is the
-only thing between the forum and an anonymous spam endpoint.
-
-The board's level is re-checked on **reply** as well as on read, or somebody who
-learned a thread id could talk in the staff lounge. Tested: a member replying to
-a staff thread by id is refused and nothing lands.
-
-Moderation is **exec** — removing a thread or a reply, and closing a thread to
-replies. Removing the opening post takes the whole thread with it, which the UI
-knows, so it drops back to the board rather than rendering nothing. Both removals
-arm first, like the chart's.
-
-Removed posts go to **Deleted records** and can be restored; see the nested-kind
-note there, because a reply is the one archived thing that is not a row in a
-top-level list. Caps: 200 threads, and `MAX_REPLIES` 100 per thread.
-
 ## Deleted records
 
 Removing a row used to be final: the list editor spliced it out, the save
-overwrote the list, and nothing remembered. Four lists now keep what was removed
+overwrote the list, and nothing remembered. Five lists now keep what was removed
 on **`deleted`**, read from Control room → Deleted records.
 
 `ARCHIVED_LISTS` in `lib/archive.js` names them — `applications`,
-`legalFilings`, `research`, `requests`, `projects`, `forum`. Not all of them on purpose: the
+`legalFilings`, `research`, `requests`, `projects`. Not all of them on purpose: the
 record is one blob every page load reads, and archiving `shifts` and
 `transactions`, which turn over fastest and matter least individually, would grow
 it for little gain.
 
-### Nested kinds
+### Kinds that no longer exist
 
-A forum **reply** is the one archived thing that is not a row in a top-level
-list, so it needs both halves doing differently:
+Every archived kind is now a row in a top-level list. A forum **reply** was the
+one exception — it lived inside its thread, so the save-time diff could not see
+it and it could not be restored by appending to a list of its own — and the
+archive carried a second, nested code path (`NESTED_ARCHIVED`) for that alone.
+Both went with the forum.
 
-- The save-time diff cannot see it — only `/api/forum` knows a reply went, and it
-  archives one explicitly with `archiveEntry("forumReply", …)`, recording
-  `threadId` and `threadTitle` on the entry.
-- Restoring it cannot append to a list of its own. `NESTED_ARCHIVED` describes
-  where it goes back — `parent`, `into`, and `ref` naming the field that holds
-  the parent's id — and `/api/archive` follows that instead of the list path.
-
-Two behaviours worth keeping:
-
-- It goes back **in sequence**, not on the end. `entryId()` prefixes a base-36
-  timestamp, so sorting the replies on their id sorts them by when they were
-  written, and a restored middle reply lands back in the middle. Top-level
-  restores still append, because nothing records where those sat.
-- `threadId` / `threadTitle` are scaffolding for the archive and are **stripped**
-  on the way back, so the restored reply matches its siblings' shape.
-
-If the parent thread has since been removed too, the restore refuses and says to
-restore the thread first — a thread carries its replies, so that brings the
-conversation back whole. Both archive rows survive the refusal.
+A record deleted while the forum existed is **still on `deleted`**, with kind
+`forum` or `forumReply`. Two things make that harmless rather than a crash:
+`/api/archive` refuses a kind that is not in `ARCHIVED_LISTS` with "that kind of
+record cannot be restored", and `DeletedRow` falls back to the entry's own title
+when `DELETED_SUMMARY` has no shape for its kind, so the row still reads. Keep
+both fallbacks if you retire another list.
 
 `ARCHIVE_KINDS` is the ordered list of everything that can appear on `deleted`,
-and `archiveLabel()` names any of them; the Deleted records page groups on those
-rather than on `ARCHIVED_LISTS`, or the nested kinds would have nowhere to show.
+and `archiveLabel()` names any of them.
 
 **The archive matches by `id`, never by value.** This is the whole design
 constraint. The control room saves on **every keystroke**, so a value comparison
@@ -973,7 +918,10 @@ Site: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `AUTH_SECRET`,
 `BOT_API_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`.
 
 Bot: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, `SITE_URL`,
-`BOT_API_KEY` (identical to the site's), `STAFF_ROLE_ID`, `EXEC_ROLE_ID`.
+`BOT_API_KEY` (identical to the site's), `EXEC_ROLE_ID`.
+
+`STAFF_ROLE_ID` is no longer read: `/finances` was the only command that gated on
+it, and it went with the financial record. The variable can stay set harmlessly.
 
 `ADMIN_USERNAME`/`ADMIN_PASSWORD` are read **once**, on the first page load, to
 mint the founding exec. Changing them later does nothing. Recovery is to delete
@@ -1018,8 +966,11 @@ ADMIN_PASSWORD=supersecret1 BOT_API_KEY=botkey123 npm start
 Then verify the security properties, not just the happy path:
 
 ```bash
-# anonymous view must not contain the balance sheet or accounts
-curl -s localhost:3000/api/data | python3 -m json.tool | grep -c balance
+# anonymous view must not contain accounts, the forum or the financial record.
+# All three must print 0 even when the stored record still carries them.
+curl -s localhost:3000/api/data | grep -c '"forum"'
+curl -s localhost:3000/api/data | grep -c '"financials"'
+curl -s localhost:3000/api/data | grep -c '"equity"'
 
 curl -s -c /tmp/e.jar -X POST localhost:3000/api/auth/login \
   -H 'Content-Type: application/json' \
@@ -1195,7 +1146,7 @@ so it is a real test. Keep that out of the repo.
   and are gone. That applies to `deleted` too: it is a safety net for a recent
   mis-click, not a permanent audit trail.
 - Deleting a row from `staff`, `divisions`, `services`, `jobs`, `shifts`,
-  `transactions`, `announcements` or `financials.periods` is still final —
+  `transactions` or `announcements` is still final —
   only the four in `ARCHIVED_LISTS` are kept.
 - The staff room renders only the most recent 40 shifts and transactions. The
   rest are on the record and show in the control room; this is a page-length

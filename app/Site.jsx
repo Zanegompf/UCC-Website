@@ -8,8 +8,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
   CartesianGrid,
   PieChart,
   Pie,
@@ -30,7 +28,6 @@ import {
   researchPlural,
 } from "@/lib/research";
 import { ARCHIVE_KINDS, archiveLabel } from "@/lib/archive";
-import { FORUM_BOARDS, boardBy, lastActivity } from "@/lib/forum";
 import { readRegister } from "@/lib/shareholders";
 import { CAPS, STOCK_HISTORY_CAP } from "@/lib/caps";
 
@@ -106,7 +103,7 @@ const ROLE_NAME = {
 const ROLE_BLURB = {
   member: "You have an account, but no company access yet. An executive can raise it.",
   client: "You can see the rate card, client projects and the request desk.",
-  staff: "You can see the balance sheet, internal notes and incoming requests.",
+  staff: "You can see internal notes, incoming requests, the shift log and the transaction book.",
   rnd: "Everything a staff member sees, plus the research department's files — market research, competitor analysis and acquisition targets.",
   legal: "Everything the research department sees, plus the legal department's filings, which you can add to and comment on.",
   exec: "You can edit the company record and manage accounts.",
@@ -116,7 +113,7 @@ const ROLE_BLURB = {
 const ROLE_TABS = [
   { key: "member", label: "Member", hint: "Signed in, sees only public material" },
   { key: "client", label: "Client", hint: "Rate card, client projects, request desk" },
-  { key: "staff", label: "Staff", hint: "Balance sheet, internal notes, requests" },
+  { key: "staff", label: "Staff", hint: "Internal notes, requests, shifts, transactions" },
   { key: "rnd", label: "R&D", hint: "Staff, plus the research department's files" },
   { key: "legal", label: "Legal", hint: "R&D, plus the legal department's filings" },
   { key: "exec", label: "Exec", hint: "Full control of the company record" },
@@ -145,15 +142,11 @@ const HOOK_EVENTS = ["All posts", "Announcements"];
 const TABS = [
   { name: "Overview", min: 0 },
   { name: "Share", min: 0 },
-  { name: "Financials", min: 0 },
   { name: "People", min: 0 },
   { name: "Projects", min: 0 },
   { name: "Client desk", min: 0 },
   { name: "Staff room", min: 0 },
   { name: "Control room", min: LEVEL.exec },
-  // Sits after the control room and before the account tab, which App appends.
-  // Open to everyone: reading the forum takes no account, posting does.
-  { name: "UCC Forum", min: 0 },
 ];
 
 const ACCOUNT_TAB = "Account";
@@ -2232,8 +2225,8 @@ function capTable(holders, issued) {
   return { slices, held, base, holders: rows.length, over: held > issued };
 }
 
-/** A wedge's own figures, on hover. The equity chart's only route to a name. */
-function SliceTip({ active, payload, named }) {
+/** A wedge's own figures, on hover. */
+function SliceTip({ active, payload }) {
   if (!active || !payload || !payload.length) return null;
   const s = payload[0].payload;
   if (!s) return null;
@@ -2246,11 +2239,9 @@ function SliceTip({ active, payload, named }) {
         maxWidth: 240,
       }}
     >
-      {named && (
-        <div style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink, marginBottom: 2 }}>
-          {s.name}
-        </div>
-      )}
+      <div style={{ fontFamily: F.body, fontSize: 13.5, color: C.ink, marginBottom: 2 }}>
+        {s.name}
+      </div>
       <div style={{ fontFamily: F.mono, fontSize: 11.5, color: s.muted ? C.inkSoft : C.ink }}>
         {s.pct.toFixed(1)}% of the company
       </div>
@@ -2262,15 +2253,16 @@ function SliceTip({ active, payload, named }) {
 }
 
 /**
- * One register chart.
+ * The register chart.
  *
- * `names` decides whether a wedge carries its holder's name. The voter chart
- * does; the equity chart deliberately does not, and gives the name up only on
- * hover. Both label every wedge they can with its percentage — that is not
+ * A wedge carries its holder's name and its percentage. The percentage is not
  * decoration: the palette clears its colour-blindness checks in the band where
- * a second, non-colour channel is required, and the percentage is it.
+ * a second, non-colour channel is required, and that is it.
+ *
+ * There used to be a `names` flag here, false for the equity chart, which gave
+ * its holders up only on hover. That chart is gone and every wedge is named.
  */
-function RegisterPie({ table, names }) {
+function RegisterPie({ table }) {
   const { slices } = table;
   const label = (p) => {
     const s = slices[p.index];
@@ -2288,7 +2280,7 @@ function RegisterPie({ table, names }) {
      * Whatever is dropped here is still on the tooltip, and on the table for the
      * chart that has one.
      */
-    const shown = names ? shortName(s.name) : "";
+    const shown = shortName(s.name);
     const needed = Math.max(shown.length * 6.4, 40) + 8;
     const arc = 2 * Math.PI * r * (s.pct / 100);
     if (arc < needed) return null;
@@ -2299,12 +2291,10 @@ function RegisterPie({ table, names }) {
     const ink = s.muted ? C.inkSoft : sliceInk(s.color);
     return (
       <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill={ink}>
-        {names && (
-          <tspan x={x} dy="-0.5em" style={{ fontFamily: F.body, fontSize: 12.5 }}>
-            {shown}
-          </tspan>
-        )}
-        <tspan x={x} dy={names ? "1.3em" : 0} style={{ fontFamily: F.mono, fontSize: 11 }}>
+        <tspan x={x} dy="-0.5em" style={{ fontFamily: F.body, fontSize: 12.5 }}>
+          {shown}
+        </tspan>
+        <tspan x={x} dy="1.3em" style={{ fontFamily: F.mono, fontSize: 11 }}>
           {s.pct.toFixed(1)}%
         </tspan>
       </text>
@@ -2338,7 +2328,7 @@ function RegisterPie({ table, names }) {
               />
             ))}
           </Pie>
-          <Tooltip content={<SliceTip named />} wrapperStyle={{ outline: "none" }} />
+          <Tooltip content={<SliceTip />} wrapperStyle={{ outline: "none" }} />
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -2422,11 +2412,15 @@ const blankHolder = () => ({ id: "", name: "", shares: 0 });
 /**
  * The register editor, behind the hammer.
  *
- * It holds a draft rather than saving as you type. Both charts read the draft
+ * It holds a draft rather than saving as you type. The chart reads the draft
  * while it is open, so a holding changes the pie as it is typed — which is the
  * point of editing it here rather than on a form somewhere else — and the whole
  * register goes to the server once, on Save. The control room's keystroke saves
  * would be a PUT per character for a chart nobody is reading yet.
+ *
+ * `column` is still parameterised by class even though there is only one left.
+ * It used to lay out equity beside votes; leaving the shape alone keeps the
+ * diff to the class that went.
  */
 function RegisterEditor({ draft, setDraft, onSave, onCancel, busy, msg }) {
   const [armed, setArmed] = useState(null);
@@ -2541,25 +2535,18 @@ function RegisterEditor({ draft, setDraft, onSave, onCancel, busy, msg }) {
         className="mt-2 mb-5 max-w-3xl"
         style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.55 }}
       >
-        Both charts follow this as you type. Nothing is on the record until you
+        The chart follows this as you type. Nothing is on the record until you
         save it, and closing the hammer without saving leaves the register as it
         was.
       </p>
 
-      <div className="grid md:grid-cols-2 gap-x-10 gap-y-8">
-        {column(
-          "equity",
-          "Equity shareholders",
-          "shares",
-          "Total shares issued",
-          "The same figure the market capital is worked out from, so changing it moves that too."
-        )}
+      <div className="max-w-2xl">
         {column(
           "voters",
           "Voter shareholders",
           "voterShares",
           "Total voting shares issued",
-          "Votes are counted on their own, and need not match the shares issued."
+          "Votes are counted on their own. The shares issued are the control room's."
         )}
       </div>
 
@@ -2613,8 +2600,6 @@ function RegisterNote({ table, issued, unit, extra }) {
 function ShareSection({ data, level, save, saveRegister }) {
   const s = data.stock;
   const cap = s.price * s.shares;
-  const equity = data.financials.equity || 0;
-  const bookPerShare = equity / (s.shares || 1);
   const first = s.history.length ? s.history[0].price : s.price;
   const growth = first ? ((s.price - first) / first) * 100 : 0;
 
@@ -2634,20 +2619,15 @@ function ShareSection({ data, level, save, saveRegister }) {
   const mayEdit = level >= LEVEL.ceo && !!saveRegister;
   const editing = mayEdit && !!draft;
 
-  // While the hammer is open both charts read the draft, so a holding moves the
+  // While the hammer is open the chart reads the draft, so a holding moves the
   // pie as it is typed rather than after a save.
-  const view = editing
-    ? draft
-    : { ...register, shares: s.shares || 0 };
+  const view = editing ? draft : register;
 
-  const equityTable = capTable(view.equity, view.shares);
   const voterTable = capTable(view.voters, view.voterShares);
 
   const openEditor = () => {
     setDraft({
-      shares: s.shares || 0,
       voterShares: register.voterShares,
-      equity: register.equity.map((h) => ({ ...h })),
       voters: register.voters.map((h) => ({ ...h })),
     });
     setMsg(null);
@@ -2663,9 +2643,7 @@ function ShareSection({ data, level, save, saveRegister }) {
     setMsg(null);
     try {
       await saveRegister({
-        shares: draft.shares,
         voterShares: draft.voterShares,
-        equity: draft.equity,
         voters: draft.voters,
       });
       setMsg({ text: "Saved to the register." });
@@ -2684,7 +2662,7 @@ function ShareSection({ data, level, save, saveRegister }) {
           title="The share"
           note={`${data.company.ticker} trades on ${data.company.exchange}. Prices here are posted by the company and are the same ones we file.`}
         />
-        <div className="grid md:grid-cols-4 gap-4">
+        <div className="grid md:grid-cols-3 gap-4">
           <Panel style={{ padding: 16 }}>
             <Stat label="Last traded" value={"$" + dec(s.price)} sub={s.updated} />
           </Panel>
@@ -2698,14 +2676,6 @@ function ShareSection({ data, level, save, saveRegister }) {
           </Panel>
           <Panel style={{ padding: 16 }}>
             <Stat label="Market capital" value={compact(cap)} sub="price × shares" />
-          </Panel>
-          <Panel style={{ padding: 16 }}>
-            <Stat
-              label="Book value per share"
-              value={"$" + dec(bookPerShare)}
-              sub={cap > equity ? "trading above book" : "trading below book"}
-              accent={C.gold}
-            />
           </Panel>
         </div>
         {level >= LEVEL.ceo && save && <PriceSetter data={data} save={save} />}
@@ -2762,11 +2732,11 @@ function ShareSection({ data, level, save, saveRegister }) {
           <div className="min-w-0 flex-1">
             <SectionHead
               index="III"
-              title="Equity shareholders"
+              title="Voter shareholders"
               note={
                 editing
-                  ? "Unlocked. Both charts follow what you type; nothing is on the record until you save."
-                  : "Who owns the company, by paid-up shares. The names are not printed on the chart — hover a slice for the holder and the share of the company it is."
+                  ? "Unlocked. The chart follows what you type; nothing is on the record until you save."
+                  : "Who votes the company. Voting shares are counted on their own and need not match the shares issued."
               }
             />
           </div>
@@ -2803,54 +2773,24 @@ function ShareSection({ data, level, save, saveRegister }) {
           {/* Judged on holders, not slices: with nobody on the register the
               only wedge would be the unallocated one, which is a grey disc
               rather than a chart. */}
-          {equityTable.holders ? (
+          {voterTable.holders ? (
             <Panel style={{ padding: 18 }}>
-              {/* Held to a width rather than stretched across the panel: with
-                  no table beside it the chart would otherwise sit alone in the
-                  middle of a very wide sheet of paper. */}
-              <div className="mx-auto" style={{ maxWidth: 560 }}>
-                <RegisterPie table={equityTable} />
+              <div className="grid lg:grid-cols-2 gap-6 items-center">
+                <RegisterPie table={voterTable} />
+                <RegisterTable table={voterTable} />
               </div>
-              {/* No table of names under this one: the chart is meant to give
-                  the holder up on hover and nowhere else. The percentages on
-                  the wedges are the second, non-colour channel the palette
-                  needs, and they carry no name. */}
-              <RegisterNote
-                table={equityTable}
-                issued={view.shares}
-                unit="shares"
-                extra="hover a slice for the holder"
-              />
+              <RegisterNote table={voterTable} issued={view.voterShares} unit="votes" />
             </Panel>
           ) : (
-            <RegisterEmpty what="equity shareholders" />
+            <RegisterEmpty what="voter shareholders" />
           )}
         </div>
-      </section>
-
-      <section>
-        <SectionHead
-          index="IV"
-          title="Voter shareholders"
-          note="Who votes the company. Voting shares are counted on their own and need not match the shares issued."
-        />
-        {voterTable.holders ? (
-          <Panel style={{ padding: 18 }}>
-            <div className="grid lg:grid-cols-2 gap-6 items-center">
-              <RegisterPie table={voterTable} names />
-              <RegisterTable table={voterTable} />
-            </div>
-            <RegisterNote table={voterTable} issued={view.voterShares} unit="votes" />
-          </Panel>
-        ) : (
-          <RegisterEmpty what="voter shareholders" />
-        )}
       </section>
 
       {level >= LEVEL.client ? (
         <section>
           <SectionHead
-            index="V"
+            index="IV"
             title="The full record"
             note="Every price point the company has posted."
           />
@@ -2932,201 +2872,6 @@ function LockedNote({ what, who }) {
         Sign in to see {what}. Open to {who}. Create an account from the sign-in button, then ask an executive in the company Discord to raise your access.
       </p>
     </Panel>
-  );
-}
-
-function Financials({ data, level }) {
-  const f = data.financials;
-  const chartData = f.periods.map((p) => ({
-    label: p.label,
-    Revenue: p.revenue,
-    Expenses: p.expenses,
-    Profit: p.revenue - p.expenses,
-  }));
-  const latest = f.periods[f.periods.length - 1] || { revenue: 0, expenses: 0 };
-  const net = latest.revenue - latest.expenses;
-  const margin = latest.revenue ? (net / latest.revenue) * 100 : 0;
-  const b = f.balance || {};
-  const assets = f.assets || 0;
-  const equity = f.equity || 0;
-
-  return (
-    <div className="space-y-10">
-      <section>
-        <SectionHead
-          index="I"
-          title="The books"
-          note={f.note}
-        />
-        <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4">
-          <Panel style={{ padding: 16 }}>
-            <Stat label="Revenue, last month" value={compact(latest.revenue)} sub={latest.label} />
-          </Panel>
-          <Panel style={{ padding: 16 }}>
-            <Stat label="Net profit" value={compact(net)} accent={net >= 0 ? C.ledger : C.seal} sub={margin.toFixed(1) + "% margin"} />
-          </Panel>
-          <Panel style={{ padding: 16 }}>
-            <Stat label="Total assets" value={compact(assets)} sub="cash, stock, land, holdings" />
-          </Panel>
-          <Panel style={{ padding: 16 }}>
-            <Stat label="Shareholders' equity" value={compact(equity)} accent={C.gold} sub="assets less liabilities" />
-          </Panel>
-        </div>
-      </section>
-
-      <section>
-        <SectionHead index="II" title="Revenue against costs" />
-        <Panel style={{ padding: 18 }}>
-          <div style={{ height: 300 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -4 }}>
-                <CartesianGrid stroke={C.paperLine} vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }}
-                  axisLine={{ stroke: C.rule }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={56}
-                  tickFormatter={(v) => "$" + v / 1000 + "K"}
-                />
-                <Tooltip
-                  cursor={{ fill: "rgba(16,35,63,0.05)" }}
-                  contentStyle={{
-                    fontFamily: F.mono,
-                    fontSize: 11,
-                    background: C.paper,
-                    border: `1px solid ${C.ink}`,
-                    borderRadius: 0,
-                  }}
-                  formatter={(v, n) => [money(v), n]}
-                />
-                <Bar dataKey="Revenue" fill={C.ink} isAnimationActive={false} />
-                <Bar dataKey="Expenses" fill={C.rule} isAnimationActive={false} />
-                <Bar dataKey="Profit" fill={C.ledger} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="flex flex-wrap gap-5 mt-4">
-            {[["Revenue", C.ink], ["Expenses", C.rule], ["Profit", C.ledger]].map(([k, col]) => (
-              <div key={k} className="flex items-center gap-2">
-                <span style={{ width: 12, height: 12, background: col, display: "inline-block" }} />
-                <span style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft }}>{k}</span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </section>
-
-      {level >= LEVEL.staff && f.balance ? (
-        <section>
-          <SectionHead
-            index="III"
-            title="Balance sheet"
-            note="Internal detail. Do not post these figures outside the company without the CFO's sign-off."
-          />
-          <div className="grid md:grid-cols-2 gap-4">
-            <Panel style={{ padding: 20 }}>
-              <Eyebrow>Assets</Eyebrow>
-              <div className="mt-4">
-                {[
-                  ["Cash on hand", b.cash],
-                  ["Inventory", b.inventory],
-                  ["Property and plots", b.property],
-                  ["Investments", b.investments],
-                ].map(([k, v]) => (
-                  <LedgerRow key={k} label={k} value={money(v)} />
-                ))}
-                <LedgerRow label="Total assets" value={money(assets)} bold />
-              </div>
-            </Panel>
-            <Panel style={{ padding: 20 }}>
-              <Eyebrow>Liabilities and equity</Eyebrow>
-              <div className="mt-4">
-                <LedgerRow label="Liabilities" value={money(b.liabilities)} />
-                <LedgerRow label="Shareholders' equity" value={money(equity)} />
-                <LedgerRow
-                  label="Book value per share"
-                  value={"$" + dec(equity / (data.stock.shares || 1))}
-                />
-                <LedgerRow label="Total" value={money(assets)} bold />
-              </div>
-            </Panel>
-          </div>
-          <Panel style={{ padding: 0, marginTop: 16 }}>
-            <div className="overflow-x-auto">
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ background: C.paperDeep }}>
-                    {["Period", "Revenue", "Expenses", "Net", "Margin"].map((h) => (
-                      <th
-                        key={h}
-                        style={{
-                          textAlign: "left",
-                          padding: "10px 14px",
-                          fontFamily: F.mono,
-                          fontSize: 10,
-                          letterSpacing: "0.16em",
-                          textTransform: "uppercase",
-                          color: C.inkSoft,
-                          borderBottom: `1px solid ${C.rule}`,
-                        }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {f.periods.map((p, i) => {
-                    const n = p.revenue - p.expenses;
-                    return (
-                      <tr key={i} style={{ borderBottom: `1px solid ${C.paperLine}` }}>
-                        <td style={{ padding: "9px 14px", fontFamily: F.body, fontSize: 13.5, color: C.ink }}>{p.label}</td>
-                        <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.ink }}>{money(p.revenue)}</td>
-                        <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>{money(p.expenses)}</td>
-                        <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: n >= 0 ? C.ledger : C.seal }}>{money(n)}</td>
-                        <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>
-                          {p.revenue ? ((n / p.revenue) * 100).toFixed(1) + "%" : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        </section>
-      ) : (
-        <LockedNote
-          what="the balance sheet and the month-by-month ledger"
-          who="staff and executives"
-        />
-      )}
-    </div>
-  );
-}
-
-function LedgerRow({ label, value, bold }) {
-  return (
-    <div
-      className="flex justify-between gap-4 py-2"
-      style={{
-        borderTop: `1px solid ${bold ? C.ink : C.paperLine}`,
-        marginTop: bold ? 6 : 0,
-      }}
-    >
-      <span style={{ fontFamily: F.body, fontSize: 13.5, color: bold ? C.ink : C.inkSoft, fontWeight: bold ? 600 : 400 }}>
-        {label}
-      </span>
-      <span style={{ fontFamily: F.mono, fontSize: 13, color: C.ink, fontWeight: bold ? 600 : 400 }}>
-        {value}
-      </span>
-    </div>
   );
 }
 
@@ -5443,570 +5188,6 @@ function StaffRoom({
   );
 }
 
-/* -------------------------------- the forum ------------------------------ */
-
-/** Opens a thread on one board. The board comes from where you pressed it. */
-function NewThreadModal({ board, onClose, onSubmit, session }) {
-  const [form, setForm] = useState({
-    title: "",
-    body: "",
-    author: session?.username || "",
-  });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const ready = form.title.trim() && form.body.trim();
-
-  const submit = async () => {
-    if (!ready || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      await onSubmit({ action: "thread", board: board.key, ...form });
-      onClose();
-    } catch (e) {
-      setError(e.message);
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal onClose={onClose} wide>
-      <div className="p-7">
-        <Eyebrow color={C.gold}>{board.name}</Eyebrow>
-        <h2 className="mt-2 mb-1" style={{ fontFamily: F.display, fontSize: 30, color: C.ink }}>
-          New thread
-        </h2>
-        <p
-          className="mb-5"
-          style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.55 }}
-        >
-          {board.blurb}
-        </p>
-
-        <Field
-          label="Title"
-          value={form.title}
-          onChange={(v) => setForm({ ...form, title: v })}
-          placeholder="What is this about?"
-        />
-        <Field
-          label="Your post"
-          rows={8}
-          value={form.body}
-          onChange={(v) => setForm({ ...form, body: v })}
-        />
-        <Field
-          label="Posting as"
-          value={form.author}
-          onChange={(v) => setForm({ ...form, author: v })}
-          placeholder="Your in-game name"
-        />
-
-        {error && (
-          <p className="mb-3" style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>
-            {error}
-          </p>
-        )}
-
-        <div className="flex items-center gap-3">
-          <Btn variant="solid" onClick={submit} disabled={!ready || busy}>
-            {busy ? "Posting…" : "Post it"}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-/** One post — the thread's opening message, or a reply to it. */
-function ForumPost({ post, session, canModerate, onDelete, opening }) {
-  const [armed, setArmed] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const remove = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await onDelete(post.id);
-    } catch (e) {
-      setBusy(false);
-      setArmed(false);
-    }
-  };
-
-  return (
-    <Panel style={{ padding: 18 }} tone={opening ? "deep" : undefined}>
-      <div className="flex flex-wrap items-center gap-3 mb-2">
-        <span style={{ fontFamily: F.mono, fontSize: 12.5, color: C.ink }}>
-          {post.author || post.account}
-        </span>
-        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>{post.ts}</span>
-        {post.account && post.account === session?.username && (
-          <span
-            style={{
-              fontFamily: F.mono,
-              fontSize: 9.5,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: C.inkSoft,
-            }}
-          >
-            you
-          </span>
-        )}
-        {canModerate && (
-          <span className="ml-auto flex items-center gap-2">
-            {armed ? (
-              <>
-                <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.seal }}>
-                  {opening ? "Remove the whole thread?" : "Remove this post?"}
-                </span>
-                <OrgAction tone="seal" onClick={remove} title="Yes, remove it">
-                  {busy ? "…" : "Yes"}
-                </OrgAction>
-                <OrgAction onClick={() => setArmed(false)} title="Keep it">
-                  Keep
-                </OrgAction>
-              </>
-            ) : (
-              <OrgAction tone="seal" onClick={() => setArmed(true)} title="Remove this post">
-                Remove
-              </OrgAction>
-            )}
-          </span>
-        )}
-      </div>
-      <p
-        style={{
-          fontFamily: F.body,
-          fontSize: 14.5,
-          color: C.ink,
-          lineHeight: 1.65,
-          whiteSpace: "pre-wrap",
-          overflowWrap: "anywhere",
-          margin: 0,
-        }}
-      >
-        {post.body}
-      </p>
-    </Panel>
-  );
-}
-
-/** A thread and everything said in it. */
-function ForumThread({ thread, board, level, session, onBack, onSubmitForum }) {
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const canModerate = level >= LEVEL.exec;
-  const canPost = Boolean(session?.username) && level >= LEVEL[board.min];
-  const replies = Array.isArray(thread.replies) ? thread.replies : [];
-
-  const reply = async () => {
-    if (!draft.trim() || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      await onSubmitForum({ action: "reply", id: thread.id, body: draft });
-      setDraft("");
-    } catch (e) {
-      setError(e.message);
-    }
-    setBusy(false);
-  };
-
-  const remove = async (id) => {
-    await onSubmitForum({ action: "delete", id });
-    // Removing the opening post takes the thread with it, so there is nothing
-    // left to look at.
-    if (id === thread.id) onBack();
-  };
-
-  return (
-    <div className="space-y-6">
-      <Btn onClick={onBack}>← {board.name}</Btn>
-
-      <div>
-        <div className="flex flex-wrap items-center gap-3 mb-2">
-          <Eyebrow>{board.name}</Eyebrow>
-          {thread.locked && (
-            <span
-              style={{
-                fontFamily: F.mono,
-                fontSize: 9.5,
-                letterSpacing: "0.16em",
-                textTransform: "uppercase",
-                padding: "3px 7px",
-                background: C.seal,
-                color: "#FFFFFF",
-              }}
-            >
-              Closed
-            </span>
-          )}
-          {canModerate && (
-            <span className="ml-auto">
-              <Btn
-                onClick={() =>
-                  onSubmitForum({ action: "lock", id: thread.id, locked: !thread.locked })
-                }
-              >
-                {thread.locked ? "Reopen" : "Close thread"}
-              </Btn>
-            </span>
-          )}
-        </div>
-        <h2
-          style={{
-            fontFamily: F.display,
-            fontSize: "clamp(26px, 3.4vw, 36px)",
-            lineHeight: 1.08,
-            color: C.ink,
-            letterSpacing: "-0.015em",
-          }}
-        >
-          {thread.title}
-        </h2>
-      </div>
-
-      <div className="space-y-3">
-        <ForumPost
-          opening
-          post={thread}
-          session={session}
-          canModerate={canModerate}
-          onDelete={remove}
-        />
-        {replies.map((r) => (
-          <ForumPost
-            key={r.id}
-            post={r}
-            session={session}
-            canModerate={canModerate}
-            onDelete={remove}
-          />
-        ))}
-      </div>
-
-      {thread.locked ? (
-        <Panel tone="deep" style={{ padding: 18 }}>
-          <p style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft }}>
-            An executive has closed this thread. Nothing more can be posted to it.
-          </p>
-        </Panel>
-      ) : canPost ? (
-        <Panel style={{ padding: 18 }}>
-          <div className="mb-1">
-            <Eyebrow>Reply</Eyebrow>
-          </div>
-          <textarea
-            rows={4}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Say your piece."
-            style={{
-              width: "100%",
-              fontFamily: F.body,
-              fontSize: 14,
-              color: C.ink,
-              background: "rgba(255,255,255,0.7)",
-              border: `1px solid ${C.rule}`,
-              padding: "8px 10px",
-              outline: "none",
-              lineHeight: 1.5,
-              resize: "vertical",
-            }}
-          />
-          <div className="flex items-center gap-3 mt-2">
-            <Btn variant="solid" onClick={reply} disabled={!draft.trim() || busy}>
-              {busy ? "Posting…" : "Post reply"}
-            </Btn>
-            {error && (
-              <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>{error}</span>
-            )}
-          </div>
-        </Panel>
-      ) : (
-        <Panel tone="deep" style={{ padding: 18, borderStyle: "dashed" }}>
-          <p style={{ fontFamily: F.body, fontSize: 13.5, color: C.inkSoft }}>
-            Sign in to reply. Reading is open; posting takes an account.
-          </p>
-        </Panel>
-      )}
-    </div>
-  );
-}
-
-/** The threads on one board, most recently active first. */
-function ForumBoard({ board, threads, level, session, onOpen, onBack, onSubmitForum }) {
-  const [composing, setComposing] = useState(false);
-  const canPost = Boolean(session?.username) && level >= LEVEL[board.min];
-
-  const ordered = useMemo(
-    () =>
-      [...threads].sort((a, b) => {
-        const d = lastActivity(b).localeCompare(lastActivity(a));
-        return d !== 0 ? d : String(b.id).localeCompare(String(a.id));
-      }),
-    [threads]
-  );
-
-  return (
-    <div className="space-y-6">
-      <Btn onClick={onBack}>← All boards</Btn>
-
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="min-w-0 flex-1">
-          <SectionHead title={board.name} note={board.blurb} />
-        </div>
-        {canPost && (
-          <div className="shrink-0 pt-1">
-            <Btn variant="solid" onClick={() => setComposing(true)}>
-              New thread
-            </Btn>
-          </div>
-        )}
-      </div>
-
-      {ordered.length === 0 ? (
-        <Panel tone="deep" style={{ padding: 20 }}>
-          <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft }}>
-            Nothing here yet.{" "}
-            {canPost ? "Start the first thread." : "Sign in to start the first thread."}
-          </p>
-        </Panel>
-      ) : (
-        <div className="space-y-3">
-          {ordered.map((t) => {
-            const n = (t.replies || []).length;
-            return (
-              <Panel key={t.id} raised style={{ padding: 0 }}>
-                <button
-                  type="button"
-                  onClick={() => onOpen(t.id)}
-                  className="ucc-hub"
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    textAlign: "left",
-                    padding: 18,
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  <span className="flex flex-wrap items-center gap-3">
-                    <span style={{ fontFamily: F.mono, fontSize: 11, color: C.gold }}>{t.ts}</span>
-                    <span style={{ fontFamily: F.mono, fontSize: 12, color: C.inkSoft }}>
-                      {t.author || t.account}
-                    </span>
-                    {t.locked && (
-                      <span
-                        style={{
-                          fontFamily: F.mono,
-                          fontSize: 9.5,
-                          letterSpacing: "0.16em",
-                          textTransform: "uppercase",
-                          color: C.seal,
-                        }}
-                      >
-                        closed
-                      </span>
-                    )}
-                  </span>
-                  <span
-                    className="block mt-1"
-                    style={{ fontFamily: F.display, fontSize: 21, color: C.ink, lineHeight: 1.15 }}
-                  >
-                    {t.title}
-                  </span>
-                  <span
-                    className="block mt-2"
-                    style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft, letterSpacing: "0.1em" }}
-                  >
-                    {n === 0 ? "no replies" : n === 1 ? "1 reply" : n + " replies"}
-                  </span>
-                </button>
-              </Panel>
-            );
-          })}
-        </div>
-      )}
-
-      {composing && (
-        <NewThreadModal
-          board={board}
-          onClose={() => setComposing(false)}
-          onSubmit={onSubmitForum}
-          session={session}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * The company forum.
- *
- * Three views behind one tab — the boards, a board's threads, one thread — held
- * in local state rather than the address, the same way the control room holds
- * which editor is open. The tab itself is in the hash, so a refresh comes back
- * to the forum rather than the overview.
- *
- * Boards above the viewer's level are shown but not opened. Saying "there is a
- * staff lounge and you cannot read it" is friendlier than pretending it does not
- * exist, and the server has already withheld every thread in it.
- */
-function Forum({ data, level, session, onSubmitForum, onSignIn }) {
-  const [boardKey, setBoardKey] = useState(null);
-  const [threadId, setThreadId] = useState(null);
-
-  const threads = Array.isArray(data.forum) ? data.forum : [];
-  const byBoard = useMemo(() => {
-    const m = new Map(FORUM_BOARDS.map((b) => [b.key, []]));
-    for (const t of threads) {
-      if (!t || !m.has(t.board)) continue;
-      m.get(t.board).push(t);
-    }
-    return m;
-  }, [threads]);
-
-  const board = boardKey ? boardBy(boardKey) : null;
-  const thread = threadId ? threads.find((t) => t && t.id === threadId) : null;
-
-  // A thread that has just been removed, or one whose board the viewer cannot
-  // reach, drops back rather than rendering nothing.
-  if (board && threadId && !thread) {
-    return (
-      <ForumBoard
-        board={board}
-        threads={byBoard.get(board.key) || []}
-        level={level}
-        session={session}
-        onOpen={setThreadId}
-        onBack={() => { setBoardKey(null); setThreadId(null); }}
-        onSubmitForum={onSubmitForum}
-      />
-    );
-  }
-
-  if (board && thread) {
-    return (
-      <ForumThread
-        thread={thread}
-        board={board}
-        level={level}
-        session={session}
-        onBack={() => setThreadId(null)}
-        onSubmitForum={onSubmitForum}
-      />
-    );
-  }
-
-  if (board) {
-    return (
-      <ForumBoard
-        board={board}
-        threads={byBoard.get(board.key) || []}
-        level={level}
-        session={session}
-        onOpen={setThreadId}
-        onBack={() => setBoardKey(null)}
-        onSubmitForum={onSubmitForum}
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-8">
-      <SectionHead
-        index="I"
-        title="The forum"
-        note="Where the company and the people it trades with talk. Reading is open to anyone; posting takes an account, which is one click from the sign-in button."
-      />
-
-      {!session?.username && (
-        <Panel tone="deep" style={{ padding: 18 }}>
-          <p
-            className="mb-3"
-            style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}
-          >
-            You are reading as a visitor. An account lets you post, and gives you
-            nothing else you did not already have.
-          </p>
-          <Btn variant="solid" onClick={onSignIn}>
-            Sign in or create an account
-          </Btn>
-        </Panel>
-      )}
-
-      <div className="grid md:grid-cols-2 gap-4">
-        {FORUM_BOARDS.map((b) => {
-          const open = level >= LEVEL[b.min];
-          const list = byBoard.get(b.key) || [];
-          const posts = list.reduce((n, t) => n + 1 + (t.replies || []).length, 0);
-
-          return (
-            <Panel
-              key={b.key}
-              raised={open}
-              tone={open ? undefined : "deep"}
-              style={{ padding: 0, opacity: open ? 1 : 0.72 }}
-            >
-              <button
-                type="button"
-                disabled={!open}
-                onClick={() => open && setBoardKey(b.key)}
-                className={open ? "ucc-hub" : undefined}
-                style={{
-                  display: "block",
-                  width: "100%",
-                  textAlign: "left",
-                  padding: 18,
-                  background: "none",
-                  border: "none",
-                  cursor: open ? "pointer" : "not-allowed",
-                }}
-              >
-                <span
-                  className="block"
-                  style={{ fontFamily: F.display, fontSize: 21, color: C.ink, lineHeight: 1.15 }}
-                >
-                  {b.name}
-                </span>
-                <span
-                  className="block mt-1"
-                  style={{ fontFamily: F.body, fontSize: 13, color: C.inkSoft, lineHeight: 1.5 }}
-                >
-                  {b.blurb}
-                </span>
-                <span
-                  className="block mt-3"
-                  style={{
-                    fontFamily: F.mono,
-                    fontSize: 11,
-                    letterSpacing: "0.1em",
-                    color: open ? C.gold : C.seal,
-                  }}
-                >
-                  {open
-                    ? `${list.length} ${list.length === 1 ? "thread" : "threads"} · ${posts} ${
-                        posts === 1 ? "post" : "posts"
-                      }`
-                    : `${ROLE_NAME[b.min] || b.min} access and above`}
-                </span>
-              </button>
-            </Panel>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 /* ----------------------------- control room ----------------------------- */
 
 /**
@@ -6293,21 +5474,6 @@ const DELETED_SUMMARY = {
     meta: [e.status, e.visibility && e.visibility + " only", e.target].filter(Boolean),
     detail: e.summary,
   }),
-  forum: (e) => ({
-    title: e.title,
-    meta: [
-      boardBy(e.board)?.name || e.board,
-      e.author,
-      (e.replies || []).length + " replies",
-      e.locked && "closed",
-    ].filter(Boolean),
-    detail: e.body,
-  }),
-  forumReply: (e) => ({
-    title: e.threadTitle ? `Reply in “${e.threadTitle}”` : "Forum reply",
-    meta: [e.author].filter(Boolean),
-    detail: e.body,
-  }),
 };
 
 function DeletedRow({ row, onRestore }) {
@@ -6439,8 +5605,8 @@ function DeletedRecords({ data, onRestore }) {
         <Panel tone="deep" style={{ padding: 20 }}>
           <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
             Nothing has been deleted. When somebody removes an application, a
-            legal filing, a research file, a client request, a project or a forum
-            post, what it said is kept here.
+            legal filing, a research file, a client request or a project, what it
+            said is kept here.
           </p>
         </Panel>
       </div>
@@ -6688,38 +5854,6 @@ function ControlRoom({ data, save, level, session, onRestore }) {
       ),
     },
     {
-      key: "financials",
-      label: "Financials",
-      blurb: "Monthly revenue and costs, and the balance sheet behind them.",
-      count: (data.financials?.periods || []).length,
-      body: (
-        <>
-          <ListEditor
-            title="Monthly figures"
-            items={data.financials.periods}
-            blank={{ label: "", revenue: 0, expenses: 0 }}
-            onChange={(v) => set("financials.periods", v)}
-            fields={[
-              { k: "label", label: "Period" },
-              { k: "revenue", label: "Revenue", type: "number" },
-              { k: "expenses", label: "Expenses", type: "number" },
-            ]}
-          />
-          <Panel style={{ padding: 20 }}>
-            <Eyebrow>Balance sheet</Eyebrow>
-            <div className="grid md:grid-cols-2 gap-x-5 mt-4">
-              <Field label="Cash" type="number" value={data.financials.balance.cash} onChange={(v) => set("financials.balance.cash", v)} />
-              <Field label="Inventory" type="number" value={data.financials.balance.inventory} onChange={(v) => set("financials.balance.inventory", v)} />
-              <Field label="Property" type="number" value={data.financials.balance.property} onChange={(v) => set("financials.balance.property", v)} />
-              <Field label="Investments" type="number" value={data.financials.balance.investments} onChange={(v) => set("financials.balance.investments", v)} />
-              <Field label="Liabilities" type="number" value={data.financials.balance.liabilities} onChange={(v) => set("financials.balance.liabilities", v)} />
-            </div>
-            <Field label="Note under the figures" rows={2} value={data.financials.note} onChange={(v) => set("financials.note", v)} />
-          </Panel>
-        </>
-      ),
-    },
-    {
       key: "requests",
       label: "Client requests",
       blurb: "Anything sent through the client desk, and where it got to.",
@@ -6942,41 +6076,11 @@ function ControlRoom({ data, save, level, session, onRestore }) {
       ),
     },
     {
-      key: "forum",
-      label: "Forum",
-      blurb: "Every thread on the boards, and which board it sits in.",
-      note: "Moving a thread to a board with a higher access level hides it from anyone below. Removing a thread here takes its replies with it, and forum posts are not kept in Deleted records — closing and removing are usually better done on the thread itself.",
-      count: (data.forum || []).length,
-      body: (
-        <ListEditor
-          title="Forum threads"
-          items={data.forum || []}
-          blank={{ ts: "", board: FORUM_BOARDS[0].key, title: "", body: "", author: "", locked: false, replies: [] }}
-          onChange={(v) => set("forum", v)}
-          fields={[
-            { k: "title", label: "Title", full: true },
-            { k: "board", label: "Board", options: FORUM_BOARDS.map((b) => b.key) },
-            { k: "author", label: "Posted by" },
-            { k: "body", label: "Opening post", full: true, rows: 4 },
-          ]}
-          footer={(t) => (
-            <p
-              className="mb-3"
-              style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft }}
-            >
-              {(Array.isArray(t.replies) ? t.replies.length : 0) + " repl(ies)"}
-              {t.locked ? " · closed" : ""}
-            </p>
-          )}
-        />
-      ),
-    },
-    {
       key: "deleted",
       label: "Deleted records",
       blurb:
         "Applications, legal filings, research files, client requests and projects that have been removed.",
-      note: "What each one said when it was deleted, newest first. Restore puts it back keeping the date it was originally filed — at the end of its list, except a forum reply, which goes back in sequence in its thread. Restoring a thread brings its replies with it. The last 200 deletions are held, then the oldest fall off.",
+      note: "What each one said when it was deleted, newest first. Restore puts it back at the end of its list, keeping the date it was originally filed. The last 200 deletions are held, then the oldest fall off.",
       count: (data.deleted || []).length,
       body: <DeletedRecords data={data} onRestore={onRestore} />,
     },
@@ -7530,7 +6634,7 @@ function SettingsModal({ onClose, session, data, save, prefs, setPrefs, onGoAcco
                 outline: "none",
               }}
             >
-              {["Overview", "Share", "Financials", "People", "Projects"].map((t) => (
+              {["Overview", "Share", "People", "Projects"].map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -7813,16 +6917,6 @@ export default function App() {
     [load]
   );
 
-  // Threads, replies, and an executive's moderation all go through here — the
-  // route takes an `action`, the way the legal department does.
-  const submitForum = useCallback(
-    async (payload) => {
-      await api("/api/forum", { method: "POST", body: JSON.stringify(payload) });
-      await load();
-    },
-    [load]
-  );
-
   // Puts a deleted row back. Returns the route's answer so the page can name
   // the list it went to.
   const restoreDeleted = useCallback(
@@ -8024,7 +7118,6 @@ export default function App() {
             saveRegister={saveRegister}
           />
         )}
-        {tab === "Financials" && <Financials data={data} level={level} />}
         {tab === "People" && <People data={data} level={level} save={save} />}
         {tab === "Projects" && <Projects data={data} level={level} />}
         {tab === "Client desk" && (
@@ -8048,15 +7141,6 @@ export default function App() {
             save={save}
             session={session}
             onRestore={restoreDeleted}
-          />
-        )}
-        {tab === "UCC Forum" && (
-          <Forum
-            data={data}
-            level={level}
-            session={session}
-            onSubmitForum={submitForum}
-            onSignIn={() => setShowSignIn(true)}
           />
         )}
         {tab === "Account" && session.username && (

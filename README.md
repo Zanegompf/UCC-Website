@@ -1,7 +1,7 @@
 # The United Commerce Corporation
 
 The company website and Discord bot for UCC on DemocracyCraft. The site shows
-the share price, the books, the company chart, the staff and the projects.
+the share price, the company chart, the staff and the projects.
 Clients and staff sign in to see more. Staff clock their shifts and log the
 deals done off the chest shops. The bot reads and writes the same record, so
 Discord and the website can never disagree.
@@ -187,7 +187,6 @@ Webhooks only push *out* to Discord. The bot is what lets people pull data
    | `DISCORD_GUILD_ID` | your server ID |
    | `SITE_URL` | `https://your-domain.com`, no trailing slash |
    | `BOT_API_KEY` | **the same string you gave Vercel** |
-   | `STAFF_ROLE_ID` | your staff role ID |
    | `EXEC_ROLE_ID` | your executive role ID |
 
 4. Deploy. Commands register within a minute.
@@ -200,13 +199,12 @@ Webhooks only push *out* to Discord. The bot is what lets people pull data
 | `/mission` | anyone |
 | `/staff` | anyone |
 | `/projects` | anyone |
-| `/finances` | staff and executive roles |
 | `/setprice` | executive role |
 | `/announce` | executive role |
 
-`/setprice` and `/announce` write straight to the website. The private commands
-are gated on **Discord role IDs**, not on site accounts, so if you leave
-`STAFF_ROLE_ID` blank, nobody can use `/finances` — including you.
+`/setprice` and `/announce` write straight to the website. They are gated on the
+**Discord role ID** in `EXEC_ROLE_ID`, not on site accounts, so if you leave it
+blank nobody can use them — including you.
 
 ---
 
@@ -231,14 +229,12 @@ place instead of dropping on the overview — `#share`, `#staff-room`,
 | Tab | What it holds |
 |---|---|
 | **Overview** | Mission, the company chart, notices, and the job application form |
-| **Share** | Price, market capital, book value, the price chart, who owns and who votes the company, and the full price table |
-| **Financials** | Monthly revenue and costs, and the balance sheet for staff |
+| **Share** | Price, market capital, the price chart, who votes the company, and the full price table |
 | **People** | The same chart as the overview, with the people in it |
 | **Projects** | What is being built, with progress |
 | **Client desk** | The rate card, and the form clients use to ask for something |
 | **Staff room** | Requests, the hiring board, standing orders, shift and transaction logs, and the way through to the legal and research departments |
 | **Control room** | Everything that edits the record |
-| **UCC Forum** | Boards where the company and its clients talk |
 
 **The company chart.** Divisions are a tree, not a list: each one names the
 entry it sits under, and a blank one is the top. Governing bodies (the board,
@@ -262,21 +258,16 @@ children and its people with it. Removing a block is only offered when nothing
 hangs off it and nobody is in it, and both removals ask twice — the record is
 the only copy.
 
-**The share register.** The Share tab carries two pie charts: **Equity
-shareholders** (section III) and **Voter shareholders** (section IV), with the
-full price table below them at V.
+**The share register.** The Share tab carries a pie chart of the **voter
+shareholders** (section III), with the full price table below it at IV.
 
-Equity is money — who owns the company — and is counted against the **shares
-issued**, the same number the market capital is worked out from. Votes are
-control, counted against their own total, because a vote and a share need not be
-the same thing. Anything issued but not on the register shows as a pale "not
-allocated" wedge, so the chart is honest about what is spoken for.
+Votes are counted against their own total, recorded on the register itself,
+because a vote and a share need not be the same thing. Anything issued but not on
+the register shows as a pale "not allocated" wedge, so the chart is honest about
+what is spoken for.
 
-The two charts read differently on purpose. **The voter chart names everybody**,
-in the wedge, with a table beside it. **The equity chart names nobody** — each
-wedge shows only its percentage, and the holder appears when you hover it, along
-with the share of the company they own. A holder too small to fit a label is
-still on the tooltip and in the table.
+**The chart names everybody**, in the wedge, with a table beside it. A holder too
+small to fit a label is still on the tooltip and in the table.
 
 Beyond five holders the rest are gathered into one "smaller holders" wedge. Five
 is where colours stop being reliably distinguishable, including for colour-blind
@@ -392,28 +383,25 @@ changes it and that should not need a deploy.
 **The control room.** Posting a notice, moving the price and Discord stay on
 the page. Everything past them is **one page each**, reached from the cards
 under "The rest of the record" — company details, divisions, staff, projects,
-rate card, financials, client requests, transactions, shift log, applications,
-legal filings, legal templates, forum, job list, deleted records and accounts. They used to be stacked in
+rate card, client requests, transactions, shift log, applications,
+legal filings, legal templates, job list, deleted records and accounts. They used to be stacked in
 one column, so reaching the job list meant scrolling past the whole company.
 Everything on those pages saves the moment you type it.
 
-**Deleted records.** Six things remember what was removed: **job applications,
-legal filings, research files, client requests, projects and forum posts**.
-Delete one and what
+**Deleted records.** Five things remember what was removed: **job applications,
+legal filings, research files, client requests and projects**. Delete one and what
 it said is kept on the Deleted records page, newest first, with who deleted it
 and when. It exists because a mis-click on Remove used to be final — the save
 overwrote the list and nothing on the record remembered.
 
 Each one has a **Restore** button that puts it back, keeping the date it was
-originally filed. Most go to the **end of their list** — nothing records where
+originally filed. They go to the **end of their list** — nothing records where
 they used to sit and the rows around them have moved on since. A restored legal
-filing brings its comments with it, and a restored forum thread brings its whole
-conversation.
+filing brings its comments with it.
 
-**A forum reply is the exception**: it goes back into its thread *in sequence*,
-so a reply deleted from the middle lands back in the middle. If its thread has
-since been deleted too, restoring the reply is refused and tells you to restore
-the thread first, which brings the replies back anyway.
+If you used the forum before it was removed, its threads and replies may still be
+listed here. Restoring one is refused — there is no longer a list to put it back
+into — but what it said is still readable on the page.
 
 Once restored, an entry leaves this page, because it is no longer deleted.
 
@@ -424,32 +412,9 @@ will refuse rather than guess: restoring into a list that is already full at 200
 restoring something that is already back.
 
 Everything else is still deleted for good — staff, divisions, the rate card, the
-job list, notices, shifts, transactions and the monthly figures. Those change
+job list, notices, shifts and transactions. Those change
 constantly and keeping every version would bloat the record that every visitor
 loads.
-
-**The forum.** Five boards where the company and the people it trades with talk.
-**Reading is open to anyone; posting takes an account**, which is one click from
-the sign-in button and hands over nothing else.
-
-| Board | Who can read and post |
-|---|---|
-| General discussion | anyone |
-| The trading floor | anyone |
-| Contracts and trade | anyone |
-| Client lounge | clients and above |
-| Staff lounge | staff and above |
-
-A board above someone's level still appears on the index, greyed, saying what it
-needs — telling somebody the staff lounge exists is friendlier than hiding it,
-and the server has already withheld every thread inside. The access levels are
-real: a member cannot read *or* reply in the client lounge even if they are given
-a direct link to a thread.
-
-Executives moderate: **Remove** on any post, and **Close thread** to stop new
-replies. Removing the opening post removes the whole thread. Removed posts go to
-Deleted records and can be restored. Threads are capped at 200 and each keeps its
-most recent 100 replies.
 
 **Settings** (the cog in the masthead) holds display preferences saved on that
 device only — full figures instead of $1.68M, and which tab a plain visit opens
@@ -476,25 +441,20 @@ reason not to.
 
 The important part is *where* the filtering happens. When anyone loads the
 site, the server decides what they are allowed to see and strips everything
-else out before sending the page. A visitor's browser never receives the
-balance sheet, the internal staff notes, the client rate card, the shift log or
-the hidden projects — not hidden with CSS, not present at all. Opening
+else out before sending the page. A visitor's browser never receives the internal
+staff notes, the client rate card, the shift log or the hidden projects — not
+hidden with CSS, not present at all. Opening
 developer tools shows them nothing extra.
 
 | | Visitor | Member | Client | Staff | R&D | Legal | Exec | CEO |
 |---|---|---|---|---|---|---|---|---|
 | Mission, share price, company chart, public projects | yes | yes | yes | yes | yes | yes | yes | yes |
-| Revenue, expenses, totals | yes | yes | yes | yes | yes | yes | yes | yes |
+| Who votes the company | yes | yes | yes | yes | yes | yes | yes | yes |
 | Change own password | — | yes | yes | yes | yes | yes | yes | yes |
 | Apply for a job | — | yes | yes | yes | yes | yes | yes | yes |
-| Read the open forum boards | yes | yes | yes | yes | yes | yes | yes | yes |
-| Post on the forum | — | yes | yes | yes | yes | yes | yes | yes |
-| Client lounge board | — | — | yes | yes | yes | yes | yes | yes |
-| Staff lounge board | — | — | — | yes | yes | yes | yes | yes |
-| Moderating the forum | — | — | — | — | — | — | yes | yes |
 | Rate card and the client desk | — | — | yes | yes | yes | yes | yes | yes |
 | Client-only projects, the full price table | — | — | yes | yes | yes | yes | yes | yes |
-| Balance sheet, internal staff notes | — | — | — | yes | yes | yes | yes | yes |
+| Internal staff notes | — | — | — | yes | yes | yes | yes | yes |
 | Incoming client requests | — | — | — | yes | yes | yes | yes | yes |
 | Shift log, transaction log, clocking in | — | — | — | yes | yes | yes | yes | yes |
 | Research files, and commenting | — | — | — | — | yes | yes | yes | yes |
@@ -598,8 +558,6 @@ tight enough to get in the way of ordinary use, but a script gets stopped:
 | Shifts and transactions | 30 / hour each |
 | Job applications | 5 / hour |
 | Legal filings and comments | 40 / hour combined |
-| Forum threads | 10 / hour |
-| Forum replies | 40 / hour |
 | Restoring a deleted record | 20 / hour |
 | Posting to Discord | 20 / hour |
 

@@ -34,7 +34,7 @@ function readShares(v) {
 }
 
 /**
- * The share register — who owns the company, and who votes it.
+ * The share register — who votes the company.
  *
  * **Chief executive only, and this one is a permission rather than an
  * interface.** The chart hammer on the People tab and the price control on the
@@ -122,11 +122,9 @@ export async function POST(req) {
   const current = readRegister(data);
   const next = { ...current };
 
-  for (const [key, label] of [["equity", "equity holders"], ["voters", "voter holders"]]) {
-    const read = readClass(body[key], label);
-    if (read?.error) return bad(read.error);
-    if (read) next[key] = read.rows;
-  }
+  const read = readClass(body.voters, "voter holders");
+  if (read?.error) return bad(read.error);
+  if (read) next.voters = read.rows;
 
   if (body.voterShares !== undefined) {
     const v = readShares(body.voterShares);
@@ -136,22 +134,15 @@ export async function POST(req) {
 
   data.shareholders = next;
 
-  /**
-   * Equity is counted against `stock.shares`, so the total issued on the share
-   * page writes that rather than a second copy of it. Two share counts would
-   * drift the way the caps did, and the market capital reads this one.
-   */
-  if (body.shares !== undefined) {
-    const s = readShares(body.shares);
-    if (s === null) return bad("Shares issued has to be a whole number.");
-    if (s < 1) return bad("The company has to have at least one share issued.");
-    data.stock = { ...data.stock, shares: s };
-  }
+  // `stock.shares` is deliberately not written here any more. It was, while
+  // equity was counted against it and the register's editor carried a "total
+  // shares issued" field. Votes have their own total, so the issued share count
+  // is now only the control room's to change, through PUT /api/data.
 
   await writeData(data);
 
   return NextResponse.json(
-    { ok: true, shareholders: data.shareholders, shares: data.stock.shares },
+    { ok: true, shareholders: data.shareholders },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

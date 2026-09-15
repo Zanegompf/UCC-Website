@@ -3,8 +3,8 @@ import { ensureData } from "@/lib/seed";
 import { writeData } from "@/lib/store";
 import { getSession } from "@/lib/auth";
 import { levelOf, LEVEL, effectiveRole } from "@/lib/roles";
-import { ARCHIVED_LISTS, NESTED_ARCHIVED, archiveLabel } from "@/lib/archive";
-import { CAPS, MAX_REPLIES } from "@/lib/caps";
+import { ARCHIVED_LISTS, archiveLabel } from "@/lib/archive";
+import { CAPS } from "@/lib/caps";
 import {
   rateLimit,
   tooMany,
@@ -70,69 +70,17 @@ export async function POST(req) {
 
   const row = archive[at];
   const key = row.kind;
-  const nested = NESTED_ARCHIVED[key];
 
-  if (!nested && !Object.prototype.hasOwnProperty.call(ARCHIVED_LISTS, key)) {
+  // A record deleted while the forum existed is still on `deleted` and its kind
+  // is no longer restorable — there is no list to put it back into. It says so
+  // rather than half-restoring it somewhere.
+  if (!Object.prototype.hasOwnProperty.call(ARCHIVED_LISTS, key)) {
     return bad("That kind of record cannot be restored.");
   }
 
   const entry = row.entry;
   if (!entry || typeof entry !== "object") {
     return bad("That row did not keep enough to put back.");
-  }
-
-  /* --------------------- back inside its parent, not a list --------------- */
-
-  if (nested) {
-    const parents = Array.isArray(data[nested.parent]) ? data[nested.parent] : [];
-    const parentId = entry[nested.ref];
-    const pi = parents.findIndex((p) => p && p.id === parentId);
-
-    // The thread this reply belonged to may itself have been removed since.
-    // Restoring the thread brings its replies with it, so the honest answer is
-    // to say the parent is gone rather than invent somewhere to put this.
-    if (pi < 0) {
-      return bad(
-        "The thread this belonged to is gone. Restore that first and its replies come back with it.",
-        409
-      );
-    }
-
-    const into = Array.isArray(parents[pi][nested.into]) ? parents[pi][nested.into] : [];
-
-    if (entry.id && into.some((e) => e && e.id === entry.id)) {
-      return bad("That one is already back on the record.", 409);
-    }
-    if (into.length >= MAX_REPLIES) {
-      return bad(
-        `That thread is full at ${MAX_REPLIES} replies. Remove one before restoring this.`,
-        409
-      );
-    }
-
-    // `threadId` and `threadTitle` were added so this row knew where it came
-    // from; they are not part of a reply and do not go back on the record.
-    const { [nested.ref]: _ref, threadTitle: _title, ...restored } = entry;
-
-    // Back in sequence rather than on the end. A top-level restore appends,
-    // because nothing records where the row sat — but a reply does: `entryId`
-    // prefixes a base-36 timestamp, so sorting on the id is sorting on when it
-    // was written, and a conversation reads in the order it happened.
-    const ordered = [...into, restored].sort((a, b) =>
-      String(a.id).localeCompare(String(b.id))
-    );
-
-    const next = [...parents];
-    next[pi] = { ...next[pi], [nested.into]: ordered };
-    data[nested.parent] = next;
-    data.deleted = archive.filter((_, i) => i !== at);
-
-    await writeData(data);
-
-    return NextResponse.json(
-      { ok: true, kind: key, label: archiveLabel(key) },
-      { headers: { "Cache-Control": "no-store" } }
-    );
   }
 
   const list = Array.isArray(data[key]) ? data[key] : [];
