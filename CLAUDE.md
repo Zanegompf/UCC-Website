@@ -57,9 +57,9 @@ app/
     legal/          POST for the legal department (legal+), body.action
                     "file" | "comment" | "template" | "delete" — delete is ceo only
     archive/        POST body.action "restore" — puts a deleted row back (exec)
-    shareholders/   POST body.action "save" — the whole share register, **ceo
-                    only**. The one route whose gate is the whole story; see
-                    "The share register"
+    shareholders/   POST body.action "save" — the whole register, both classes,
+                    **ceo only**. The one route whose gate is the whole story;
+                    see "The register"
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
@@ -74,7 +74,8 @@ lib/
   legal.js          LEGAL_KINDS/_BLURBS/_PLURALS, LEGAL_STATUSES, kindPlural().
                     Constants only, so unlike HOOK_EVENTS it is imported by both
                     the route and Site.jsx rather than mirrored
-  shareholders.js   EMPTY_REGISTER, readRegister(), totalHeld().
+  shareholders.js   EMPTY_REGISTER, readRegister(), totalHeld(). Two classes:
+                    voters and bonds, each with its own total.
                     Constants and normalising only, like lib/legal.js, so the
                     route and Site.jsx share them. The slice colours are not
                     here — they live with the rest of the palette in Site.jsx
@@ -150,7 +151,7 @@ whether the request gets that far at all. It is not a substitute for the above.
 | legal filings and comments | 40 / hour per account | all |
 | research files and comments | 40 / hour per account | all |
 | restoring a deleted row | 20 / hour per account | all |
-| saving the share register | 60 / hour per account | all |
+| saving the register | 60 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
 | bot key | 10 / 10 min per IP | wrong keys only |
 
@@ -196,7 +197,7 @@ deliberately still offers only `member` and `client`.
 `ceo` sees exactly what an executive sees — every `filterData` gate is
 `>= LEVEL.exec`, which it clears — and adds four things: unlocking the people
 chart to edit it in place, deleting a legal filing, moving the share price from
-the share page itself, and writing the share register.
+the share page itself, and writing the register.
 
 Two of the four are **interfaces, not permissions**: the chart hammer and the
 share page's price control both save through `PUT /api/data`, which checks for
@@ -204,7 +205,7 @@ share page's price control both save through `PUT /api/data`, which checks for
 describe those two as security boundaries.
 
 The other two are real. The legal-filing delete is enforced against `ceo` in
-`/api/legal`, and the share register in `/api/shareholders` — and the register is
+`/api/legal`, and the register in `/api/shareholders` — and the register is
 the stricter of the two, because unlike `legalFilings` it is **not in
 `EDITABLE`**, so there is no page save that reaches it either. It is the only
 thing on the record an executive genuinely cannot change.
@@ -255,8 +256,11 @@ divisions[]{name,code,parent,lead,blurb,remit?}   <- a tree; see below.
 research[]{id,ts,kind,title,subject,valuation,status,detail,author,account,
            comments[]{ts,author,body,account}}    <- stripped below rnd
 stock{price,prevClose,shares,listed,updated,history[]{label,price}}
-shareholders{voterShares, voters[]{id,name,shares}}
+                                     <- history starts empty; nothing is seeded
+shareholders{voterShares, voters[]{id,name,shares},
+             bondsIssued, bonds[]{id,name,shares}}
                                                    <- ceo-only, NOT in EDITABLE
+                                     shares = the unit count, in both classes
 staff[]{name,role,dept,joined,note,internal}    <- dept: comma-separated block names
 projects[]{name,status,visibility,progress,target,summary}
 services[]{name,price,detail}
@@ -286,13 +290,27 @@ versions. Add migrations there.
 array becoming an empty one is idempotent — it does not matter how often it
 runs, so most of them are unguarded and unwritten. Adding a *row* is not: doing
 that on every load would mean an executive could delete the row and watch it
-come straight back. Those are gated on `RECORD_VERSION` in `lib/seed.js`, and
-the new version is **written** with the change, the same bargain the id
-migration makes. The research department's block is the first of these: bumping
-`RECORD_VERSION` is what makes a one-shot migration run, and the write is
-wrapped in `try`/`catch` so a read-only token cannot take the site down.
-Verified both ways — an old record gains the block once and no amount of
-reloading adds a second, and a block an executive deletes stays deleted.
+come straight back. Nor is *emptying* a list: wiping the price record on every
+load would throw away every price posted since. Those are gated on
+`RECORD_VERSION` in `lib/seed.js`, and the new version is **written** with the
+change, the same bargain the id migration makes. The research department's block
+is the first of these: bumping `RECORD_VERSION` is what makes a one-shot
+migration run, and the write is wrapped in `try`/`catch` so a read-only token
+cannot take the site down. Verified both ways — an old record gains the block
+once and no amount of reloading adds a second, and a block an executive deletes
+stays deleted.
+
+**A gated migration names the version it belongs to** — `at < 2`, `at < 3` —
+rather than testing `< RECORD_VERSION`. A migration written against the latest
+number runs again on the *next* bump, which is not what "once" meant: bumping to
+3 to empty the price record would otherwise have resurrected a research
+department an executive had deleted. `stale` is still `at < RECORD_VERSION`,
+but it only decides whether to write the new version. The versions so far:
+
+| version | what it did, once |
+|---|---|
+| 2 | hangs the research department off the Executive Committee |
+| 3 | empties `stock.history` |
 
 **Webhooks are a list.** `discord.hooks[]` holds one entry per channel, each
 with an `events` value from `HOOK_EVENTS` in `lib/discord.js` — a post only
@@ -472,22 +490,40 @@ hidden. That is the same trap `StaffRoom` works around with a counter.
 The date label defaults to today in the bot's format (`en-GB`, day and month) and
 stays editable, since the common case is posting today's close.
 
-## The share register
+**A record starts with no price history at all.** `SEED.stock.history` is `[]`
+and record version 3 empties it on any record written before that, for the same
+reason the register is seeded empty: the fifteen weekly closes that used to sit
+there were invented, and an invented price reads as a filed one. So everything
+that draws from `stock.history` — the front page's price line, section II's
+chart and section V's table — has an empty state, and section I's "since first
+record" falls back to `stock.price` when there is nothing to measure against.
+`stock.price`, `prevClose` and `updated` are **not** cleared: they are the
+current quote, which an executive may have posted themselves.
 
-Section **III** of the share page: one pie chart of the voter shareholders,
-with the full price record at **IV**.
+## The register
 
-### One class, one denominator
+Sections **III** and **IV** of the share page: a pie chart of the voter
+shareholders, then one of the bond holders, with the full price record at **V**.
 
-There used to be two — an equity register counted against `stock.shares`, drawn
-at III, and the voters at IV. Equity was removed; what is left is votes.
+### Two classes, two denominators
 
-**Votes are counted against `shareholders.voterShares`**, which is the
-register's own total, because nothing else on the record knows how many votes
-exist. `stock.shares` still exists and the market capital is still price ×
-shares, but the register no longer counts against it and
-`/api/shareholders` no longer writes it — the issued share count is the control
-room's field alone. Do not reconnect the two.
+**Voters** are who votes the company, counted against `shareholders.voterShares`.
+**Bond holders** are who it owes, counted against `shareholders.bondsIssued`.
+Each total lives on the register because nothing else on the record knows how
+many votes or bonds exist.
+
+A row is `{id, name, shares}` in both classes — `shares` is the unit count,
+whatever the class counts in. Reusing the field is what lets the save route's
+`readClass`, `capTable`, `RegisterPie` and `RegisterTable` each take either list
+without a second copy.
+
+There was a third class once — equity, the slice of the company somebody paid
+for, counted against `stock.shares`. It was removed. `stock.shares` still exists
+and the market capital is still price × shares, but **nothing on the register
+counts against it** and `/api/shareholders` no longer writes it — the issued
+share count is the control room's field alone. Do not reconnect the two, and do
+not hang the bond class off it either: a bond is debt, not a share of anything
+`stock.shares` measures.
 
 ### Who may write it
 
@@ -506,26 +542,45 @@ The one thing an executive can still move is `stock.shares` itself, in the
 control room, because that field predates the register and the market capital
 reads it. The register — who holds what — is out of reach.
 
+A save that names one class leaves the other where it was: the route reads
+`body.voters` / `body.voterShares` and `body.bonds` / `body.bondsIssued`
+independently, each only when it is present. The page always sends all four, but
+a half-filled request cannot blank the class it does not mention.
+
 ### Reading it
 
 **Public, decided in `filterData` by not stripping it.** Who owns a listed
 company is what a share register is for, and the share page is the public
-investor page. If it ever needs to be restricted, gate it in `filterData` —
-hiding it in `Site.jsx` would only hide what was still sent.
+investor page. The bond class rides along on the same decision — who a company
+owes is the other half of the same question. If either ever needs restricting,
+gate it in `filterData`; hiding it in `Site.jsx` would only hide what was still
+sent.
 
-### The chart
+### The charts
 
-**It names everybody**, inside the wedge, with a table beside it carrying every
+**They name everybody**, inside the wedge, with a table beside carrying every
 row including the ones too small to label. `RegisterPie` used to take a `names`
 flag, false for the equity chart, which gave its holders up only on hover; with
 that chart gone the flag went too.
+
+It takes `unit` and `whole` instead — "votes" of "the vote", "bonds" of "the
+issue" — and passes them to `SliceTip` as props. Recharts clones the element
+given as `content` and adds `active`/`payload` to it, so the wording arrives
+that way rather than being copied onto every slice in `capTable`. A tooltip that
+says "% of the company" over a bond wedge is wrong, not merely clumsy.
+
+The two pies sit in **separate sections, one above the other**, not side by
+side. They measure different things against different denominators, and a reader
+handed them as a pair will compare them.
 
 `SHARE_SLICES` in `Site.jsx` is five colours, built in OKLCH against the paper
 surface and **checked with a validator rather than by eye** — lightness band,
 chroma floor, contrast, and colour-blind separation for **every pair** rather
 than just neighbours, because any two wedges of a pie can be compared. They are
-the house accents pushed to where they survive that. A sixth holder does not get
-a sixth colour: `capTable` folds the rest into one neutral "smaller holders"
+the house accents pushed to where they survive that. Both charts draw from the
+same five; they are never side by side at the same size, so a holder who appears
+in both does not need the same colour in each. A sixth holder does not get a
+sixth colour: `capTable` folds the rest into one neutral "smaller holders"
 wedge. If you add a colour, re-run the validator.
 
 **Labels are dropped by measurement, not by a percentage floor.** The arc a
@@ -542,25 +597,36 @@ Same idiom as the People tab: a 🔨 that shows only at `ceo`, on section III,
 opening the editor. It sat on the equity section until that was removed, and
 moved here with the register.
 
+**One hammer opens both classes.** Section IV has none of its own, and says so
+in its note. They are one register and they save in one request, so a draft
+holding only half of it could not be saved without deciding what happened to the
+other half. `RegisterEditor`'s `column(cls, …)` is called twice; it stayed
+parameterised after equity went, which is why the bond class cost a call rather
+than a second editor.
+
 It holds a **draft** rather than saving as you type. Both charts read the draft
-while it is open, so a holding moves the pie as it is typed — that is the point
+while it is open, so a holding moves its pie as it is typed — that is the point
 of editing it on the page — and the whole register goes to the server once, on
 Save. Discard drops the draft; the record was never touched. The draft's
 existence *is* the lock, so "unlocked" and "what is being edited" cannot
 disagree.
 
 Rows are removed **armed first** (`✕` → `Yes / Keep`), like the chart's two
-removals and the legal delete.
+removals and the legal delete. The armed row is held as `cls + ":" + i`, which
+is what keeps the two columns' rows from arming each other.
 
 The route mints an `entryId()` for a holder that arrives without one, cleans
 names to 60 characters, floors shares to whole numbers, refuses a duplicate name
 within a class, and **drops a wholly blank row** rather than refusing it —
 otherwise adding a row and thinking better of it would block the save. A row with
-a number but no name is still refused, and the page shows why.
+a number but no name is still refused, and the page shows why. The same name may
+appear in both classes: somebody can hold votes and bonds, and the duplicate
+check is per class.
 
 `MAX_SHAREHOLDERS` (60) is per class, in `lib/caps.js` but not in `CAPS`: the
 register is an object holding two lists, and the trim loop in the save route only
 walks top-level arrays.
+
 
 ## The shift log
 

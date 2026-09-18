@@ -718,52 +718,67 @@ function Hero({ data }) {
             <Stat onDark label="Market capital" value={compact(cap)} sub="price × shares" />
           </div>
 
-          <div className="mt-6" style={{ height: 170 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={s.history}
-                margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
-              >
-                <CartesianGrid stroke={C.nightLine} vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontFamily: F.mono, fontSize: 9.5, fill: C.nightSoft }}
-                  axisLine={{ stroke: C.nightLine }}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                  minTickGap={24}
-                />
-                <YAxis
-                  domain={["auto", "auto"]}
-                  tick={{ fontFamily: F.mono, fontSize: 9.5, fill: C.nightSoft }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={44}
-                />
-                <Tooltip
-                  cursor={{ stroke: C.nightLine }}
-                  contentStyle={{
-                    fontFamily: F.mono,
-                    fontSize: 11,
-                    background: C.nightDeep,
-                    border: `1px solid ${C.nightLine}`,
-                    borderRadius: 0,
-                    color: "#FFFFFF",
-                  }}
-                  labelStyle={{ color: C.nightSoft }}
-                  formatter={(v) => ["$" + dec(v), "Price"]}
-                />
-                <Line
-                  type="stepAfter"
-                  dataKey="price"
-                  stroke={up ? C.ledgerUp : C.sealDown}
-                  strokeWidth={1.8}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {s.history.length ? (
+            <div className="mt-6" style={{ height: 170 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={s.history}
+                  margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
+                >
+                  <CartesianGrid stroke={C.nightLine} vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontFamily: F.mono, fontSize: 9.5, fill: C.nightSoft }}
+                    axisLine={{ stroke: C.nightLine }}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                  />
+                  <YAxis
+                    domain={["auto", "auto"]}
+                    tick={{ fontFamily: F.mono, fontSize: 9.5, fill: C.nightSoft }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={44}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: C.nightLine }}
+                    contentStyle={{
+                      fontFamily: F.mono,
+                      fontSize: 11,
+                      background: C.nightDeep,
+                      border: `1px solid ${C.nightLine}`,
+                      borderRadius: 0,
+                      color: "#FFFFFF",
+                    }}
+                    labelStyle={{ color: C.nightSoft }}
+                    formatter={(v) => ["$" + dec(v), "Price"]}
+                  />
+                  <Line
+                    type="stepAfter"
+                    dataKey="price"
+                    stroke={up ? C.ledgerUp : C.sealDown}
+                    strokeWidth={1.8}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p
+              className="mt-6"
+              style={{
+                fontFamily: F.body,
+                fontSize: 13,
+                lineHeight: 1.6,
+                color: C.nightSoft,
+              }}
+            >
+              No closes have been posted yet. The price line starts at the first
+              one the company files.
+            </p>
+          )}
 
           <p
             className="mt-8 max-w-2xl"
@@ -2225,8 +2240,16 @@ function capTable(holders, issued) {
   return { slices, held, base, holders: rows.length, over: held > issued };
 }
 
-/** A wedge's own figures, on hover. */
-function SliceTip({ active, payload }) {
+/**
+ * A wedge's own figures, on hover.
+ *
+ * `unit` and `whole` are what the chart counts in — shares of the company for
+ * the votes, bonds of the issue for the debt. Recharts clones the element it is
+ * given as `content` and adds `active`/`payload` to it, so these arrive as
+ * ordinary props from `RegisterPie` rather than having to be copied onto every
+ * slice in `capTable`.
+ */
+function SliceTip({ active, payload, unit = "shares", whole = "the company" }) {
   if (!active || !payload || !payload.length) return null;
   const s = payload[0].payload;
   if (!s) return null;
@@ -2243,10 +2266,10 @@ function SliceTip({ active, payload }) {
         {s.name}
       </div>
       <div style={{ fontFamily: F.mono, fontSize: 11.5, color: s.muted ? C.inkSoft : C.ink }}>
-        {s.pct.toFixed(1)}% of the company
+        {s.pct.toFixed(1)}% of {whole}
       </div>
       <div style={{ fontFamily: F.mono, fontSize: 10.5, color: C.inkSoft }}>
-        {s.shares.toLocaleString("en-US")} shares
+        {s.shares.toLocaleString("en-US")} {unit}
       </div>
     </div>
   );
@@ -2262,7 +2285,7 @@ function SliceTip({ active, payload }) {
  * There used to be a `names` flag here, false for the equity chart, which gave
  * its holders up only on hover. That chart is gone and every wedge is named.
  */
-function RegisterPie({ table }) {
+function RegisterPie({ table, unit, whole }) {
   const { slices } = table;
   const label = (p) => {
     const s = slices[p.index];
@@ -2328,7 +2351,10 @@ function RegisterPie({ table }) {
               />
             ))}
           </Pie>
-          <Tooltip content={<SliceTip />} wrapperStyle={{ outline: "none" }} />
+          <Tooltip
+            content={<SliceTip unit={unit} whole={whole} />}
+            wrapperStyle={{ outline: "none" }}
+          />
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -2418,9 +2444,12 @@ const blankHolder = () => ({ id: "", name: "", shares: 0 });
  * register goes to the server once, on Save. The control room's keystroke saves
  * would be a PUT per character for a chart nobody is reading yet.
  *
- * `column` is still parameterised by class even though there is only one left.
- * It used to lay out equity beside votes; leaving the shape alone keeps the
- * diff to the class that went.
+ * `column` is parameterised by class, and there are two again — the votes and
+ * the bonds. It used to lay out equity beside votes and was left parameterised
+ * when that class went, which is why the bond class cost a call rather than a
+ * second editor. One hammer opens both: they are one register and they save in
+ * one request, so a draft that held only half of it could not be saved without
+ * deciding what happened to the other half.
  */
 function RegisterEditor({ draft, setDraft, onSave, onCancel, busy, msg }) {
   const [armed, setArmed] = useState(null);
@@ -2540,13 +2569,20 @@ function RegisterEditor({ draft, setDraft, onSave, onCancel, busy, msg }) {
         was.
       </p>
 
-      <div className="max-w-2xl">
+      <div className="grid lg:grid-cols-2 gap-x-10 gap-y-8">
         {column(
           "voters",
           "Voter shareholders",
           "voterShares",
           "Total voting shares issued",
           "Votes are counted on their own. The shares issued are the control room's."
+        )}
+        {column(
+          "bonds",
+          "Bond holders",
+          "bondsIssued",
+          "Total bonds issued",
+          "Debt, counted against its own issue. Nothing here touches the vote or the shares issued."
         )}
       </div>
 
@@ -2624,11 +2660,14 @@ function ShareSection({ data, level, save, saveRegister }) {
   const view = editing ? draft : register;
 
   const voterTable = capTable(view.voters, view.voterShares);
+  const bondTable = capTable(view.bonds, view.bondsIssued);
 
   const openEditor = () => {
     setDraft({
       voterShares: register.voterShares,
       voters: register.voters.map((h) => ({ ...h })),
+      bondsIssued: register.bondsIssued,
+      bonds: register.bonds.map((h) => ({ ...h })),
     });
     setMsg(null);
   };
@@ -2645,6 +2684,8 @@ function ShareSection({ data, level, save, saveRegister }) {
       await saveRegister({
         voterShares: draft.voterShares,
         voters: draft.voters,
+        bondsIssued: draft.bondsIssued,
+        bonds: draft.bonds,
       });
       setMsg({ text: "Saved to the register." });
     } catch (e) {
@@ -2684,46 +2725,53 @@ function ShareSection({ data, level, save, saveRegister }) {
       <section>
         <SectionHead index="II" title="Price history" />
         <Panel style={{ padding: 18 }}>
-          <div style={{ height: 320 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={s.history} margin={{ top: 8, right: 8, bottom: 0, left: -10 }}>
-                <CartesianGrid stroke={C.paperLine} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }}
-                  axisLine={{ stroke: C.rule }}
-                  tickLine={false}
-                  minTickGap={20}
-                />
-                <YAxis
-                  domain={["auto", "auto"]}
-                  tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={52}
-                  tickFormatter={(v) => "$" + v}
-                />
-                <Tooltip
-                  contentStyle={{
-                    fontFamily: F.mono,
-                    fontSize: 11,
-                    background: C.paper,
-                    border: `1px solid ${C.ink}`,
-                    borderRadius: 0,
-                  }}
-                  formatter={(v) => ["$" + dec(v), "Price"]}
-                />
-                <Line
-                  type="stepAfter"
-                  dataKey="price"
-                  stroke={C.ink}
-                  strokeWidth={2}
-                  dot={{ r: 2, fill: C.gold, stroke: C.gold }}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {s.history.length ? (
+            <div style={{ height: 320 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={s.history} margin={{ top: 8, right: 8, bottom: 0, left: -10 }}>
+                  <CartesianGrid stroke={C.paperLine} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }}
+                    axisLine={{ stroke: C.rule }}
+                    tickLine={false}
+                    minTickGap={20}
+                  />
+                  <YAxis
+                    domain={["auto", "auto"]}
+                    tick={{ fontFamily: F.mono, fontSize: 10, fill: C.inkSoft }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={52}
+                    tickFormatter={(v) => "$" + v}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      fontFamily: F.mono,
+                      fontSize: 11,
+                      background: C.paper,
+                      border: `1px solid ${C.ink}`,
+                      borderRadius: 0,
+                    }}
+                    formatter={(v) => ["$" + dec(v), "Price"]}
+                  />
+                  <Line
+                    type="stepAfter"
+                    dataKey="price"
+                    stroke={C.ink}
+                    strokeWidth={2}
+                    dot={{ r: 2, fill: C.gold, stroke: C.gold }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
+              No prices have been posted yet, so there is nothing to plot. The
+              chart draws itself from the record below as closes are filed.
+            </p>
+          )}
         </Panel>
       </section>
 
@@ -2735,7 +2783,7 @@ function ShareSection({ data, level, save, saveRegister }) {
               title="Voter shareholders"
               note={
                 editing
-                  ? "Unlocked. The chart follows what you type; nothing is on the record until you save."
+                  ? "Unlocked. Both charts follow what you type; nothing is on the record until you save."
                   : "Who votes the company. Voting shares are counted on their own and need not match the shares issued."
               }
             />
@@ -2745,13 +2793,17 @@ function ShareSection({ data, level, save, saveRegister }) {
               <Btn
                 variant={editing ? "gold" : "ghost"}
                 onClick={editing ? closeEditor : openEditor}
-                title={editing ? "Lock the register" : "Unlock the register for editing"}
+                title={
+                  editing
+                    ? "Lock the register"
+                    : "Unlock the register — voters and bond holders — for editing"
+                }
               >
                 <span aria-hidden="true" style={{ fontSize: 14 }}>
                   🔨
                 </span>
                 <span className="sr-only">
-                  {editing ? "Lock the share register" : "Unlock the share register"}
+                  {editing ? "Lock the register" : "Unlock the register"}
                 </span>
               </Btn>
             </div>
@@ -2776,7 +2828,7 @@ function ShareSection({ data, level, save, saveRegister }) {
           {voterTable.holders ? (
             <Panel style={{ padding: 18 }}>
               <div className="grid lg:grid-cols-2 gap-6 items-center">
-                <RegisterPie table={voterTable} />
+                <RegisterPie table={voterTable} unit="votes" whole="the vote" />
                 <RegisterTable table={voterTable} />
               </div>
               <RegisterNote table={voterTable} issued={view.voterShares} unit="votes" />
@@ -2787,69 +2839,110 @@ function ShareSection({ data, level, save, saveRegister }) {
         </div>
       </section>
 
+      {/* The second class on the register. It sits under the votes rather than
+          beside them because it is not a share of the same thing: a bond is
+          money the company owes, counted against its own issue, and putting the
+          two pies side by side would invite reading one against the other. The
+          hammer on III edits both, so this section has none of its own. */}
+      <section>
+        <SectionHead
+          index="IV"
+          title="Bond holders"
+          note={
+            editing
+              ? "Unlocked with the register above. The chart follows what you type; nothing is on the record until you save."
+              : "Who the company owes. A bond is debt rather than a share of the vote, counted against its own issue and carrying none of it. Edited from the hammer on III."
+          }
+        />
+
+        <div className="mt-4">
+          {bondTable.holders ? (
+            <Panel style={{ padding: 18 }}>
+              <div className="grid lg:grid-cols-2 gap-6 items-center">
+                <RegisterPie table={bondTable} unit="bonds" whole="the issue" />
+                <RegisterTable table={bondTable} />
+              </div>
+              <RegisterNote table={bondTable} issued={view.bondsIssued} unit="bonds" />
+            </Panel>
+          ) : (
+            <RegisterEmpty what="bond holders" />
+          )}
+        </div>
+      </section>
+
       {level >= LEVEL.client ? (
         <section>
           <SectionHead
-            index="IV"
+            index="V"
             title="The full record"
             note="Every price point the company has posted."
           />
-          <Panel style={{ padding: 0 }}>
-            <div className="overflow-x-auto">
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ background: C.paperDeep }}>
-                    {["Date", "Price", "Move", "Implied cap"].map((h) => (
-                      <th
-                        key={h}
-                        style={{
-                          textAlign: "left",
-                          padding: "10px 14px",
-                          fontFamily: F.mono,
-                          fontSize: 10,
-                          letterSpacing: "0.16em",
-                          textTransform: "uppercase",
-                          color: C.inkSoft,
-                          borderBottom: `1px solid ${C.rule}`,
-                        }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...s.history].reverse().map((h, i, arr) => {
-                    const prev = arr[i + 1];
-                    const d = prev ? h.price - prev.price : 0;
-                    return (
-                      <tr key={i} style={{ borderBottom: `1px solid ${C.paperLine}` }}>
-                        <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.ink }}>
-                          {h.label}
-                        </td>
-                        <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.ink }}>
-                          ${dec(h.price)}
-                        </td>
-                        <td
+          {s.history.length ? (
+            <Panel style={{ padding: 0 }}>
+              <div className="overflow-x-auto">
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ background: C.paperDeep }}>
+                      {["Date", "Price", "Move", "Implied cap"].map((h) => (
+                        <th
+                          key={h}
                           style={{
-                            padding: "9px 14px",
+                            textAlign: "left",
+                            padding: "10px 14px",
                             fontFamily: F.mono,
-                            fontSize: 12.5,
-                            color: d > 0 ? C.ledger : d < 0 ? C.seal : C.inkSoft,
+                            fontSize: 10,
+                            letterSpacing: "0.16em",
+                            textTransform: "uppercase",
+                            color: C.inkSoft,
+                            borderBottom: `1px solid ${C.rule}`,
                           }}
                         >
-                          {prev ? (d >= 0 ? "+" : "") + dec(d) : "—"}
-                        </td>
-                        <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>
-                          {compact(h.price * s.shares)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...s.history].reverse().map((h, i, arr) => {
+                      const prev = arr[i + 1];
+                      const d = prev ? h.price - prev.price : 0;
+                      return (
+                        <tr key={i} style={{ borderBottom: `1px solid ${C.paperLine}` }}>
+                          <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.ink }}>
+                            {h.label}
+                          </td>
+                          <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.ink }}>
+                            ${dec(h.price)}
+                          </td>
+                          <td
+                            style={{
+                              padding: "9px 14px",
+                              fontFamily: F.mono,
+                              fontSize: 12.5,
+                              color: d > 0 ? C.ledger : d < 0 ? C.seal : C.inkSoft,
+                            }}
+                          >
+                            {prev ? (d >= 0 ? "+" : "") + dec(d) : "—"}
+                          </td>
+                          <td style={{ padding: "9px 14px", fontFamily: F.mono, fontSize: 12.5, color: C.inkSoft }}>
+                            {compact(h.price * s.shares)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          ) : (
+            <Panel tone="deep" style={{ padding: 20, borderStyle: "dashed" }}>
+              <p style={{ fontFamily: F.body, fontSize: 14, color: C.inkSoft, lineHeight: 1.6 }}>
+                No prices have been posted yet. Every close the chief executive
+                files — from the control room or from section I — is written
+                here, newest first.
+              </p>
+            </Panel>
+          )}
         </section>
       ) : (
         <LockedNote

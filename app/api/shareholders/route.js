@@ -34,7 +34,7 @@ function readShares(v) {
 }
 
 /**
- * The share register — who votes the company.
+ * The share register — who votes the company, and who it owes.
  *
  * **Chief executive only, and this one is a permission rather than an
  * interface.** The chart hammer on the People tab and the price control on the
@@ -122,14 +122,28 @@ export async function POST(req) {
   const current = readRegister(data);
   const next = { ...current };
 
-  const read = readClass(body.voters, "voter holders");
-  if (read?.error) return bad(read.error);
-  if (read) next.voters = read.rows;
+  const voters = readClass(body.voters, "voter holders");
+  if (voters?.error) return bad(voters.error);
+  if (voters) next.voters = voters.rows;
 
   if (body.voterShares !== undefined) {
     const v = readShares(body.voterShares);
     if (v === null) return bad("Voting shares issued has to be a whole number.");
     next.voterShares = v;
+  }
+
+  // The bond class is read by the same cleaner and kept apart the same way: its
+  // own list, its own total, because a bond is debt rather than a share of the
+  // vote. A save that names one class leaves the other where it was, so the two
+  // halves of the editor cannot overwrite one another.
+  const bonds = readClass(body.bonds, "bond holders");
+  if (bonds?.error) return bad(bonds.error);
+  if (bonds) next.bonds = bonds.rows;
+
+  if (body.bondsIssued !== undefined) {
+    const v = readShares(body.bondsIssued);
+    if (v === null) return bad("Bonds issued has to be a whole number.");
+    next.bondsIssued = v;
   }
 
   data.shareholders = next;
