@@ -69,12 +69,14 @@ function directoryFor(me) {
     .sort((a, b) => a.username.localeCompare(b.username));
 }
 
-/** Roles somebody other than the caller actually holds — writing to an empty seat helps nobody. */
-function rolesFor(me) {
+/**
+ * Which roles nobody holds right now. Every role is still offered — a role
+ * thread follows the seat, so a message to an empty one waits for whoever is
+ * given it — but the page says so, rather than letting it look delivered.
+ */
+function vacantRoles(me) {
   const users = me.data.users || [];
-  return MAIL_ROLES.filter((r) =>
-    users.some((u) => u.role === r && u.username !== me.account)
-  );
+  return MAIL_ROLES.filter((r) => !users.some((u) => u.role === r));
 }
 
 export async function GET(req) {
@@ -96,7 +98,8 @@ export async function GET(req) {
   return reply({
     threads,
     unread,
-    roles: rolesFor(me),
+    roles: MAIL_ROLES,
+    vacant: vacantRoles(me),
     directory: directoryFor(me),
   });
 }
@@ -182,10 +185,9 @@ export async function POST(req) {
   let to;
 
   if (kind === "role") {
+    // Any role, held or not, including your own: an empty seat's message waits
+    // for whoever fills it, and canSee() hands it to them when they do.
     if (!MAIL_ROLES.includes(value)) return bad("Pick who this is for.");
-    if (!users.some((u) => u.role === value && u.username !== me.account)) {
-      return bad("Nobody else holds that role at the moment.");
-    }
     to = { kind: "role", value };
   } else if (kind === "user") {
     // The same line the directory draws. Without it a member could find out

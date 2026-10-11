@@ -1022,10 +1022,19 @@ its own key.
 Executives do **not** see other people's mail. Nothing here is gated on level
 except who may write to whom.
 
-Addressable roles are `MAIL_ROLES`: `ceo`, `exec`, `legal`, `rnd`, `staff`. Roles
-are matched exactly, so writing to legal does not reach the CEO. `client` and
-`member` are left out because writing to every client at once is a broadcast,
-and that is what a notice is for. Writing to a role nobody else holds is refused.
+Addressable roles are `MAIL_ROLES`: **every role**, derived from
+`ASSIGNABLE_ROLES` (most senior first), so a new rank can be written to without
+touching mail code. Roles are matched exactly, so writing to legal does not
+reach the CEO. `client` and `member` are included, and a message to either
+reaches every account at that level — a broadcast, held in check only by the
+30-an-hour limit.
+
+**Every role is always offered**, whether anyone holds it or not, and whether
+or not the only holder is you. An earlier version hid roles nobody *else* held,
+which made the CEO option vanish for the CEO and for a company with the seat
+empty. A vacant role is marked "(vacant)" in the dropdown (the GET reply's
+`vacant` list), and its message waits: `canSee()` hands it to whoever is given
+the role.
 
 A thread that is not found and one that is not yours give the same 404, so the
 route cannot be used to test whether somebody else's thread exists.

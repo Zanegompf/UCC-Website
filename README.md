@@ -238,8 +238,9 @@ place instead of dropping on the overview — `#share`, `#staff-room`,
 
 **Messages.** Signed in, the envelope in the masthead (left of the Discord
 button) opens your inbox at `#inbox`. **New message** writes to a person, or to
-a role — the chief executive, the executives, legal, R&D or staff. A message to
-a role reaches everyone who holds it, and follows the seat: a new chief
+a role — any of them, from the chief executive down to members. A message to
+a role reaches everyone who holds it. A role nobody holds is marked vacant, and
+its message waits for whoever is given it. Role messages follow the seat: a new chief
 executive sees what was written to the last one. Anyone in a conversation can
 reply, and it stays a single thread. A number on the envelope counts unread
 conversations; it checks once a minute.

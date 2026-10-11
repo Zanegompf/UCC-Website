@@ -6582,7 +6582,7 @@ function mailWhen(ts) {
   });
 }
 
-function ComposeModal({ roles, directory, onClose, onSent }) {
+function ComposeModal({ roles, vacant, directory, onClose, onSent }) {
   const [form, setForm] = useState({ to: "", subject: "", body: "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -6590,7 +6590,10 @@ function ComposeModal({ roles, directory, onClose, onSent }) {
   const groups = [
     {
       label: "A role in the company",
-      items: roles.map((r) => ({ value: "role:" + r, label: ROLE_NAME[r] || r })),
+      items: roles.map((r) => ({
+        value: "role:" + r,
+        label: (ROLE_NAME[r] || r) + (vacant.includes(r) ? " (vacant)" : ""),
+      })),
     },
     ...(directory && directory.length
       ? [
@@ -6637,7 +6640,9 @@ function ComposeModal({ roles, directory, onClose, onSent }) {
           onChange={(v) => setForm({ ...form, to: v })}
           groups={groups}
           hint={
-            form.to.startsWith("role:")
+            form.to.startsWith("role:") && vacant.includes(form.to.slice(5))
+              ? "Nobody holds that role yet. The message waits for whoever is given it."
+              : form.to.startsWith("role:")
               ? "Everyone who holds that role now sees it and can reply — and so will whoever holds it next."
               : directory
               ? "Pick a person, or a role to reach whoever holds it."
@@ -6967,6 +6972,7 @@ function Inbox({ session, onUnread }) {
       {composing && (
         <ComposeModal
           roles={mail.roles || []}
+          vacant={mail.vacant || []}
           directory={mail.directory}
           onClose={() => setComposing(false)}
           onSent={async (id) => {
