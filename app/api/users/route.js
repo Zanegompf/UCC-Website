@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { hashPassword } from "@/lib/auth";
 import { levelOf, LEVEL, ASSIGNABLE_ROLES, effectiveRole } from "@/lib/roles";
 import { crossSite, refuseCrossSite, readJson, refuseBody } from "@/lib/guard";
+import { retireAccount } from "@/lib/mail";
 
 export const dynamic = "force-dynamic";
 
@@ -232,5 +233,17 @@ export async function DELETE(req) {
 
   data.users = remaining;
   await writeData(data);
+
+  // Their name in the mail becomes `~name`, so somebody registering it later
+  // does not inherit their conversations. After the write rather than before:
+  // the account is gone either way, and a failure here should not block that.
+  if (target) {
+    try {
+      await retireAccount(name);
+    } catch (e) {
+      console.error("Could not retire " + name + " from the mail:", e);
+    }
+  }
+
   return NextResponse.json({ users: safe(data.users) });
 }

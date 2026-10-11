@@ -136,8 +136,9 @@ const HOOK_EVENTS = ["All posts", "Announcements"];
  * route would mean splitting that up for no gain the address bar does not
  * already provide.
  *
- * `Account` is not in the list because it only exists while somebody is signed
- * in, but it is addressable all the same.
+ * `Account` and `Inbox` are not in the list because they only exist while
+ * somebody is signed in, but they are addressable all the same. The inbox is
+ * reached from the envelope in the masthead rather than the tab strip.
  */
 const TABS = [
   { name: "Overview", min: 0 },
@@ -150,7 +151,11 @@ const TABS = [
 ];
 
 const ACCOUNT_TAB = "Account";
-const TAB_NAMES = [...TABS.map((t) => t.name), ACCOUNT_TAB];
+const INBOX_TAB = "Inbox";
+// Tabs that render nothing without a session, so a signed-out visit to their
+// address is sent back to the overview rather than left on a blank page.
+const SIGNED_IN_TABS = [ACCOUNT_TAB, INBOX_TAB];
+const TAB_NAMES = [...TABS.map((t) => t.name), ...SIGNED_IN_TABS];
 
 const slugOf = (name) => String(name).toLowerCase().replace(/\s+/g, "-");
 
@@ -407,7 +412,9 @@ function Btn({ children, onClick, variant, type, style, disabled }) {
 /**
  * `options` is a flat list. `groups` is [{label, items[]}] and renders
  * optgroups instead — the job list needs it, since the server publishes its
- * jobs under trades, professions, government and licences.
+ * jobs under trades, professions, government and licences. A group item may
+ * be a plain string or `{value, label}` when what is stored differs from what
+ * is shown — the mail's "To" box stores `role:ceo` and shows "Chief Executive".
  */
 function Field({ label, value, onChange, type, rows, placeholder, options, groups, hint }) {
   const shared = {
@@ -434,11 +441,14 @@ function Field({ label, value, onChange, type, rows, placeholder, options, group
           <option value="">—</option>
           {groups.map((g) => (
             <optgroup key={g.label} label={g.label}>
-              {g.items.map((o) => (
-                <option key={g.label + o} value={o}>
-                  {o}
-                </option>
-              ))}
+              {g.items.map((o) => {
+                const opt = typeof o === "object" ? o : { value: o, label: o };
+                return (
+                  <option key={g.label + opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                );
+              })}
             </optgroup>
           ))}
         </select>
@@ -6534,6 +6544,442 @@ function AuthModal({ onClose, onSignedIn, signupOpen, startMode }) {
   );
 }
 
+/* ------------------------------- the inbox ------------------------------- */
+
+/**
+ * A name as the mail shows it. A deleted account's name is stored as `~name`
+ * (see lib/mail.js), which is what keeps a later account of the same name out
+ * of its conversations.
+ */
+function mailName(account) {
+  const a = String(account || "");
+  return a.startsWith("~") ? `${a.slice(1)} (account deleted)` : a;
+}
+
+/** Who a thread was addressed to: a person, or everyone holding a role. */
+function mailTo(to) {
+  if (!to) return "—";
+  if (to.kind === "role") return `${ROLE_NAME[to.value] || to.value} (role)`;
+  return mailName(to.value);
+}
+
+/** The other side of the conversation, from where the viewer is standing. */
+function mailWith(thread, me) {
+  if (thread.from === me) return "To " + mailTo(thread.to);
+  if (thread.to?.kind === "role") return `${mailName(thread.from)} → ${mailTo(thread.to)}`;
+  return "From " + mailName(thread.from);
+}
+
+/** Date and time, because two messages on the same day need telling apart. */
+function mailWhen(ts) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function ComposeModal({ roles, directory, onClose, onSent }) {
+  const [form, setForm] = useState({ to: "", subject: "", body: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const groups = [
+    {
+      label: "A role in the company",
+      items: roles.map((r) => ({ value: "role:" + r, label: ROLE_NAME[r] || r })),
+    },
+    ...(directory && directory.length
+      ? [
+          {
+            label: "A person",
+            items: directory.map((u) => ({
+              value: "user:" + u.username,
+              label: `${u.username} · ${ROLE_NAME[u.role] || u.role}`,
+            })),
+          },
+        ]
+      : []),
+  ].filter((g) => g.items.length);
+
+  const send = async () => {
+    setErr("");
+    setBusy(true);
+    try {
+      const r = await api("/api/mail", {
+        method: "POST",
+        body: JSON.stringify({ action: "send", ...form }),
+      });
+      onSent(r.id);
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="p-6">
+        <Eyebrow color={C.gold}>New message</Eyebrow>
+        <h3
+          className="mt-1 mb-5"
+          style={{ fontFamily: F.display, fontSize: 24, color: C.ink, letterSpacing: "-0.01em" }}
+        >
+          Write to somebody
+        </h3>
+
+        <Field
+          label="To"
+          value={form.to}
+          onChange={(v) => setForm({ ...form, to: v })}
+          groups={groups}
+          hint={
+            form.to.startsWith("role:")
+              ? "Everyone who holds that role now sees it and can reply — and so will whoever holds it next."
+              : directory
+              ? "Pick a person, or a role to reach whoever holds it."
+              : "Members can write to a role. Once an executive raises your access you can write to people directly."
+          }
+        />
+        <Field
+          label="Subject"
+          value={form.subject}
+          onChange={(v) => setForm({ ...form, subject: v })}
+          placeholder="What it is about"
+        />
+        <Field
+          label="Message"
+          value={form.body}
+          onChange={(v) => setForm({ ...form, body: v })}
+          rows={6}
+        />
+
+        <div className="flex flex-wrap items-center gap-3 mt-2">
+          <Btn
+            variant="solid"
+            onClick={send}
+            disabled={busy || !form.to || !form.subject.trim() || !form.body.trim()}
+          >
+            {busy ? "Sending…" : "Send"}
+          </Btn>
+          <Btn onClick={onClose}>Cancel</Btn>
+          {err && (
+            <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>{err}</span>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** One conversation, oldest message first, with the reply box under it. */
+function MailThread({ thread, session, onBack, onReply }) {
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const me = session.username;
+
+  const send = async () => {
+    if (!draft.trim() || busy) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await onReply(thread.id, draft);
+      setDraft("");
+    } catch (e) {
+      setErr(e.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <section>
+      <div className="mb-6">
+        <Btn onClick={onBack}>← All messages</Btn>
+      </div>
+      <SectionHead
+        index="I"
+        title={thread.subject}
+        note={`Started by ${mailName(thread.from)}, to ${mailTo(thread.to)}. Only the people in this conversation can read it.`}
+      />
+      <Panel style={{ padding: 20 }}>
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {(thread.messages || []).map((m) => (
+            <li
+              key={m.id}
+              className="mb-5 pl-3"
+              style={{ borderLeft: `2px solid ${m.from === me ? C.gold : C.paperLine}` }}
+            >
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span style={{ fontFamily: F.mono, fontSize: 12, color: C.ink }}>
+                  {mailName(m.from)}
+                </span>
+                <span style={{ fontFamily: F.mono, fontSize: 10.5, color: C.gold }}>
+                  {mailWhen(m.ts)}
+                </span>
+                {m.from === me && (
+                  <span
+                    style={{
+                      fontFamily: F.mono,
+                      fontSize: 9.5,
+                      letterSpacing: "0.16em",
+                      textTransform: "uppercase",
+                      color: C.inkSoft,
+                    }}
+                  >
+                    you
+                  </span>
+                )}
+              </div>
+              <p
+                className="mt-1"
+                style={{
+                  fontFamily: F.body,
+                  fontSize: 14,
+                  color: C.ink,
+                  lineHeight: 1.6,
+                  whiteSpace: "pre-wrap",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {m.body}
+              </p>
+            </li>
+          ))}
+        </ul>
+
+        <div className="pt-4" style={{ borderTop: `1px dashed ${C.rule}` }}>
+          <Field label="Reply" value={draft} onChange={setDraft} rows={3} />
+          <div className="flex flex-wrap items-center gap-3">
+            <Btn variant="solid" onClick={send} disabled={!draft.trim() || busy}>
+              {busy ? "Sending…" : "Reply"}
+            </Btn>
+            {err && (
+              <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>{err}</span>
+            )}
+          </div>
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+/**
+ * Messages between account holders.
+ *
+ * Fetched from /api/mail on its own, never with the company record — the mail
+ * lives under its own key so that nothing private rides along on /api/data.
+ * The server decides which threads come back; this page shows what it was
+ * given. Which thread is open is local state, like the control room's pages:
+ * the inbox is in the address, the conversation is not.
+ */
+function Inbox({ session, onUnread }) {
+  const [mail, setMail] = useState(null);
+  const [err, setErr] = useState("");
+  const [openId, setOpenId] = useState(null);
+  const [composing, setComposing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api("/api/mail");
+      setMail(r);
+      setErr("");
+      onUnread(r.unread);
+      return r;
+    } catch (e) {
+      setErr(e.message);
+      return null;
+    }
+  }, [onUnread]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Opening a thread marks it read. Optimistic on the page, because the badge
+  // going down a beat late would look like it had not worked.
+  const open = useCallback(
+    async (id) => {
+      setOpenId(id);
+      const t = mail?.threads.find((x) => x.id === id);
+      if (!t?.unread) return;
+      const threads = mail.threads.map((x) => (x.id === id ? { ...x, unread: false } : x));
+      const unread = threads.filter((x) => x.unread).length;
+      setMail({ ...mail, threads, unread });
+      onUnread(unread);
+      api("/api/mail", { method: "POST", body: JSON.stringify({ action: "read", id }) }).catch(
+        () => {}
+      );
+    },
+    [mail, onUnread]
+  );
+
+  const replyTo = useCallback(
+    async (id, body) => {
+      await api("/api/mail", {
+        method: "POST",
+        body: JSON.stringify({ action: "reply", id, body }),
+      });
+      await load();
+    },
+    [load]
+  );
+
+  if (!mail) {
+    return err ? (
+      <Panel style={{ padding: 20 }}>
+        <p style={{ fontFamily: F.mono, fontSize: 12, color: C.seal }}>{err}</p>
+      </Panel>
+    ) : (
+      <p style={{ fontFamily: F.mono, fontSize: 12, color: C.inkSoft }}>Fetching your messages…</p>
+    );
+  }
+
+  const current = openId && mail.threads.find((t) => t.id === openId);
+  if (current) {
+    return (
+      <MailThread
+        thread={current}
+        session={session}
+        onBack={() => setOpenId(null)}
+        onReply={replyTo}
+      />
+    );
+  }
+
+  const threads = [...mail.threads].sort((a, b) =>
+    String(b.updated).localeCompare(String(a.updated))
+  );
+
+  return (
+    <div className="space-y-10">
+      <section>
+        <SectionHead
+          index="I"
+          title="Inbox"
+          note={
+            mail.unread
+              ? `${mail.unread} unread. Only the people in a conversation can read it.`
+              : "Conversations with other account holders, newest first. Only the people in a conversation can read it."
+          }
+        />
+
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          <Btn variant="solid" onClick={() => setComposing(true)}>
+            New message
+          </Btn>
+          {err && <span style={{ fontFamily: F.mono, fontSize: 11.5, color: C.seal }}>{err}</span>}
+        </div>
+
+        {threads.length === 0 ? (
+          <Panel tone="deep" style={{ padding: 20, borderStyle: "dashed" }}>
+            <p style={{ fontFamily: F.body, fontSize: 14.5, color: C.ink, lineHeight: 1.6 }}>
+              Nothing here yet. Write to a colleague, or to a role — the chief executive,
+              say — and the conversation will show up here when they answer.
+            </p>
+          </Panel>
+        ) : (
+          <div className="space-y-3">
+            {threads.map((t) => {
+              const last = (t.messages || [])[t.messages.length - 1];
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => open(t.id)}
+                  className="ucc-raise block w-full text-left"
+                  style={{
+                    background: C.paper,
+                    border: `1px solid ${t.unread ? C.ink : C.rule}`,
+                    boxShadow: "0 1px 2px rgba(17,28,46,0.06)",
+                    padding: "14px 18px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="min-w-0 flex items-baseline gap-2">
+                      {t.unread && (
+                        <span
+                          aria-label="Unread"
+                          style={{
+                            display: "inline-block",
+                            width: 7,
+                            height: 7,
+                            background: C.gold,
+                            flexShrink: 0,
+                            transform: "translateY(-1px)",
+                          }}
+                        />
+                      )}
+                      <span
+                        style={{
+                          fontFamily: F.body,
+                          fontSize: 15,
+                          fontWeight: t.unread ? 600 : 500,
+                          color: C.ink,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {t.subject}
+                      </span>
+                    </span>
+                    <span
+                      className="shrink-0"
+                      style={{ fontFamily: F.mono, fontSize: 10.5, color: C.gold }}
+                    >
+                      {mailWhen(t.updated)}
+                    </span>
+                  </div>
+                  <div
+                    className="mt-1"
+                    style={{ fontFamily: F.mono, fontSize: 11, color: C.inkSoft }}
+                  >
+                    {mailWith(t, session.username)}
+                    {t.messages?.length > 1 ? ` · ${t.messages.length} messages` : ""}
+                  </div>
+                  {last && (
+                    <p
+                      className="mt-1"
+                      style={{
+                        fontFamily: F.body,
+                        fontSize: 13.5,
+                        color: C.inkSoft,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {last.from === session.username ? "You: " : mailName(last.from) + ": "}
+                      {last.body}
+                    </p>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {composing && (
+        <ComposeModal
+          roles={mail.roles || []}
+          directory={mail.directory}
+          onClose={() => setComposing(false)}
+          onSent={async (id) => {
+            setComposing(false);
+            await load();
+            setOpenId(id);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 function AccountPage({ session, onSignedOut, onOpenSettings }) {
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirm: "" });
@@ -6823,6 +7269,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [prefs, setPrefs] = useState(DEFAULT_PREFS);
   const [status, setStatus] = useState("Loading the company record…");
+  // Unread conversations, for the badge on the envelope.
+  const [unread, setUnread] = useState(0);
 
   const role = session.role || "public";
   FULL_FIGURES = Boolean(prefs.fullFigures);
@@ -6872,7 +7320,7 @@ export default function App() {
       // By the time anything can be navigated the session is known, so this
       // can refuse the account tab outright rather than leaving the effect
       // below to clean up after a blank render.
-      if (t === ACCOUNT_TAB && !sessionRef.current?.username) {
+      if (SIGNED_IN_TABS.includes(t) && !sessionRef.current?.username) {
         // Correct the address as well. Setting the tab alone may be a no-op if
         // the overview was already showing, and then the effect that syncs the
         // hash never runs, leaving `#account` above the overview. Replace
@@ -7041,8 +7489,33 @@ export default function App() {
   // arrives. Waiting for `data` is what lets a signed-in refresh stay put
   // instead of being bounced to the overview.
   useEffect(() => {
-    if (data && tab === ACCOUNT_TAB && !session.username) setTab("Overview");
+    if (data && SIGNED_IN_TABS.includes(tab) && !session.username) setTab("Overview");
   }, [data, tab, session.username]);
+
+  // The badge. Asks for the count only, once a minute and whenever the tab
+  // comes back into view, and not at all while the page is hidden — there is no
+  // push channel, and polling a background tab would be requests nobody sees.
+  useEffect(() => {
+    if (!session.username) {
+      setUnread(0);
+      return;
+    }
+    let live = true;
+    const check = () => {
+      if (document.visibilityState === "hidden") return;
+      api("/api/mail?count=1")
+        .then((r) => live && setUnread(r.unread || 0))
+        .catch(() => {});
+    };
+    check();
+    const timer = setInterval(check, 60 * 1000);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      live = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [session.username]);
 
   if (!data) {
     return (
@@ -7103,11 +7576,17 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <button
             onClick={() => setTab("Overview")}
+            aria-label="United Commerce, overview"
             className="text-left min-w-0 flex items-center gap-3"
             style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
           >
             <Seal ticker={data.company.ticker} size={34} tone="dark" />
-            <span className="min-w-0" style={{ overflow: "hidden" }}>
+            {/* Signed in, the envelope adds a fourth button, and on a phone the
+                wordmark is then squeezed to a sliver — see globals.css. */}
+            <span
+              className={"min-w-0" + (session.username ? " ucc-masthead-words" : "")}
+              style={{ overflow: "hidden" }}
+            >
               <span
                 className="block ucc-masthead-name"
                 style={{
@@ -7136,6 +7615,41 @@ export default function App() {
             </span>
           </button>
           <div className="flex items-center gap-2 shrink-0 ucc-masthead-actions">
+            {session.username && (
+              <Btn
+                variant="light"
+                onClick={() => setTab(INBOX_TAB)}
+                style={{ padding: "11px 13px", position: "relative" }}
+              >
+                <span aria-hidden="true">✉</span>
+                <span className="sr-only">
+                  {" "}
+                  Messages{unread ? `, ${unread} unread` : ""}
+                </span>
+                {unread > 0 && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      top: -6,
+                      right: -6,
+                      minWidth: 17,
+                      height: 17,
+                      padding: "0 4px",
+                      background: C.goldBright,
+                      color: C.night,
+                      fontFamily: F.mono,
+                      fontSize: 10,
+                      letterSpacing: 0,
+                      lineHeight: "17px",
+                      textAlign: "center",
+                    }}
+                  >
+                    {unread > 9 ? "9+" : unread}
+                  </span>
+                )}
+              </Btn>
+            )}
             {data.company.discordInvite && (
               <a href={data.company.discordInvite} target="_blank" rel="noreferrer">
                 <Btn variant="light">Discord</Btn>
@@ -7235,6 +7749,9 @@ export default function App() {
             session={session}
             onRestore={restoreDeleted}
           />
+        )}
+        {tab === INBOX_TAB && session.username && (
+          <Inbox session={session} onUnread={setUnread} />
         )}
         {tab === "Account" && session.username && (
           <AccountPage

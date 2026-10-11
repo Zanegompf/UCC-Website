@@ -236,6 +236,19 @@ place instead of dropping on the overview — `#share`, `#staff-room`,
 | **Staff room** | Requests, the hiring board, standing orders, shift and transaction logs, and the way through to the legal and research departments |
 | **Control room** | Everything that edits the record |
 
+**Messages.** Signed in, the envelope in the masthead (left of the Discord
+button) opens your inbox at `#inbox`. **New message** writes to a person, or to
+a role — the chief executive, the executives, legal, R&D or staff. A message to
+a role reaches everyone who holds it, and follows the seat: a new chief
+executive sees what was written to the last one. Anyone in a conversation can
+reply, and it stays a single thread. A number on the envelope counts unread
+conversations; it checks once a minute.
+
+Only the people in a conversation can read it — executives included. Members
+can write to a role but not to a named person; that needs client access, since
+picking a person means seeing the list of every account on the site. Messages
+never reach Discord.
+
 **The company chart.** Divisions are a tree, not a list: each one names the
 entry it sits under, and a blank one is the top. Governing bodies (the board,
 the committee, a department) carry **no code** and are drawn in the deeper
@@ -542,6 +555,10 @@ and are gone, so if a shift matters for payroll beyond that, write the total dow
 somewhere else. Notices keep the most recent **60**, and the price chart the most
 recent **120** price points.
 
+Messages work the same way. A conversation keeps its last **100** messages, and
+the inbox as a whole keeps the **200** most recently active conversations, fewer
+if they are long — the quietest go first. Nothing can be deleted by hand.
+
 The staff room shows the **last 40** shifts and transactions to keep the page
 readable. The rest are still on the record — Control room → Shift log and
 Transactions list all of them.
@@ -558,6 +575,7 @@ tight enough to get in the way of ordinary use, but a script gets stopped:
 | Shifts and transactions | 30 / hour each |
 | Job applications | 5 / hour |
 | Legal filings and comments | 40 / hour combined |
+| Messages and replies | 30 / hour combined |
 | Restoring a deleted record | 20 / hour |
 | Posting to Discord | 20 / hour |
 

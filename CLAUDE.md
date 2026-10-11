@@ -60,11 +60,18 @@ app/
     shareholders/   POST body.action "save" — the whole register, both classes,
                     **ceo only**. The one route whose gate is the whole story;
                     see "The register"
+    mail/           GET own threads (+ ?count=1 for the badge), POST body.action
+                    "send" | "reply" | "read". Any signed-in account. Its own
+                    store key, never the record; see "Messages"
     discord/        POST server-side webhook relay (exec only)
     bot/            GET/POST for the Discord bot, x-bot-key auth
     session/        GET who am I — role resolved from the record, not the cookie
 lib/
-  store.js          Upstash REST get/set, plus redis() for guard.js counters
+  store.js          Upstash REST get/set, plus redis() for guard.js counters.
+                    readKey/writeKey/dropKey for any key; readData/writeData
+                    are those on the company record's key
+  mail.js           the mail store, canSee(), isUnread(), retireAccount().
+                    Server only
   seed.js           SEED record + ensureData() first-run/migration
   auth.js           hash, verify, session cookie
   roles.js          LEVEL, ASSIGNABLE_ROLES, filterData(), effectiveRole()
@@ -150,6 +157,8 @@ whether the request gets that far at all. It is not a substitute for the above.
 | applications | 5 / hour per account | all |
 | legal filings and comments | 40 / hour per account | all |
 | research files and comments | 40 / hour per account | all |
+| messages and replies | 30 / hour per account | all |
+| marking a message read | 300 / hour per account | all |
 | restoring a deleted row | 20 / hour per account | all |
 | saving the register | 60 / hour per account | all |
 | Discord relay | 20 / hour per account | all |
@@ -339,9 +348,10 @@ The address wins over the `landingTab` preference: that preference only decides
 where a plain visit starts. Tab changes `pushState`, so back and forward walk
 through tabs.
 
-**`#account` is the awkward one** — it is reachable while signed out, and that
-tab renders nothing without a session, which is a blank page rather than an
-error. Two guards, because one is not enough:
+**`#account` and `#inbox` are the awkward ones** — `SIGNED_IN_TABS` in
+`Site.jsx`. They are reachable while signed out, and render nothing without a
+session, which is a blank page rather than an error. Two guards, because one is
+not enough:
 
 - the `hashchange` / `popstate` listener refuses it outright and rewrites the
   hash to `#overview`. It reads the session through a **ref**: the listener is
@@ -978,6 +988,76 @@ such a hook shows what it actually holds.
 which would quietly send a category to the old URL precisely because someone
 had routed it away.
 
+## Messages
+
+Account-to-account mail, reached from the envelope left of the Discord button,
+at `#inbox`. Signed-in only.
+
+### Off the record, on purpose
+
+The mail lives under **its own Upstash key**, `ucc:mail:v1`, not on the company
+record. So it is **not in `filterData` and not in `EDITABLE`**, and must not be
+added to either. The record is sent to every visitor and saved whole by every
+executive: on it, `filterData` would be the only thing between one person's
+messages and everyone else, and a page save could overwrite them. Off it, the
+only way to a message is `/api/mail`, which picks out the caller's own threads.
+The curl check is that `/api/data` never carries message text, signed in or not.
+
+Read marks are separate again, one key per account (`ucc:mail:read:<name>`).
+Opening a thread is far more common than writing one. If the marks lived in the
+mail blob, a mark-read write would race every message sent at the same moment,
+and the loser of that race would be a message. Only the account itself writes
+its own key.
+
+### Who sees a thread
+
+`canSee()` in `lib/mail.js`, the one place this is decided:
+
+- the account that started it, or the named recipient;
+- for a **role** thread, whoever holds that role **now**. It follows the seat,
+  so a new chief executive inherits what was written to the last one;
+- anyone who has **posted** in it, so a demotion does not take away a
+  conversation somebody was part of.
+
+Executives do **not** see other people's mail. Nothing here is gated on level
+except who may write to whom.
+
+Addressable roles are `MAIL_ROLES`: `ceo`, `exec`, `legal`, `rnd`, `staff`. Roles
+are matched exactly, so writing to legal does not reach the CEO. `client` and
+`member` are left out because writing to every client at once is a broadcast,
+and that is what a notice is for. Writing to a role nobody else holds is refused.
+
+A thread that is not found and one that is not yours give the same 404, so the
+route cannot be used to test whether somebody else's thread exists.
+
+### Members write to roles, not people
+
+The person list (`directory` in the GET reply) and `to: "user:…"` both need
+**client** and above. The list is every account name with its level, and a
+member is one self-registration away from being anyone. Handing that list out
+would undo the decoy bcrypt compare that keeps sign-in from revealing which
+names exist. The send route draws the same line before it checks that the name
+exists, so it can't be used to probe names one at a time either.
+
+### Deleted accounts
+
+`DELETE /api/users` calls `retireAccount()`, which rewrites the name in the mail
+to `~name` and drops its read marks. Usernames are `[a-z0-9_]`, so nobody can
+register a `~` name, and a new account taking an old name starts with an empty
+inbox instead of the previous owner's conversations. It runs after the account
+write and is caught, because the deletion has happened either way. The page
+shows `~name` as "name (account deleted)".
+
+### The badge
+
+`App` polls `GET /api/mail?count=1` once a minute and when the tab becomes
+visible, never while it is hidden. That reply carries the number only. The inbox
+page reports its own count through `onUnread`, so opening a thread clears the
+badge immediately rather than a minute later. There is no push; that is the
+trade for not running a socket.
+
+Like everything else, nothing here posts to Discord.
+
 ## Environment
 
 Site: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `AUTH_SECRET`,
@@ -1002,12 +1082,21 @@ The container/dev machine usually has no Upstash. Swap the store for a file, and
 cp lib/store.js /tmp/store-real.js
 cat > lib/store.js <<'EOF'
 import fs from "fs/promises";
-const FILE = "/tmp/ucc-test-store.json";
-const RL = "/tmp/ucc-test-rl.json";
-export async function readData() {
-  try { return JSON.parse(await fs.readFile(FILE, "utf8")); } catch (e) { return null; }
+// One file per key: the record, the mail and each account's read marks.
+const DIR = "/tmp/ucc-test";
+const RL = DIR + "/rl.json";
+const fileOf = (key) => DIR + "/" + key.replace(/[^a-z0-9_-]/gi, "_") + ".json";
+export async function readKey(key) {
+  try { return JSON.parse(await fs.readFile(fileOf(key), "utf8")); } catch (e) { return null; }
 }
-export async function writeData(d) { await fs.writeFile(FILE, JSON.stringify(d)); return d; }
+export async function writeKey(key, v) {
+  await fs.mkdir(DIR, { recursive: true });
+  await fs.writeFile(fileOf(key), JSON.stringify(v));
+  return v;
+}
+export async function dropKey(key) { await fs.rm(fileOf(key), { force: true }); }
+export async function readData() { return readKey("ucc:company:v1"); }
+export async function writeData(d) { return writeKey("ucc:company:v1", d); }
 // lib/guard.js keeps its rate-limit counters here too, so the shim has to
 // answer the handful of commands it sends. Expiry is ignored: the window is
 // baked into the key, so a stale bucket is simply never read again.
@@ -1015,6 +1104,7 @@ async function bag() {
   try { return JSON.parse(await fs.readFile(RL, "utf8")); } catch (e) { return {}; }
 }
 export async function redis([cmd, key]) {
+  await fs.mkdir(DIR, { recursive: true });
   const b = await bag();
   if (cmd === "INCR") { b[key] = (b[key] || 0) + 1; await fs.writeFile(RL, JSON.stringify(b)); return b[key]; }
   if (cmd === "GET") return b[key] ?? null;
@@ -1023,7 +1113,7 @@ export async function redis([cmd, key]) {
 }
 EOF
 
-rm -f /tmp/ucc-test-store.json /tmp/ucc-test-rl.json
+rm -rf /tmp/ucc-test
 npm run build
 AUTH_SECRET=test-secret-1234567890 ADMIN_USERNAME=founder \
 ADMIN_PASSWORD=supersecret1 BOT_API_KEY=botkey123 npm start
@@ -1066,7 +1156,14 @@ done; echo
 Restore afterwards: `cp /tmp/store-real.js lib/store.js` and confirm with
 `grep -c UPSTASH lib/store.js` (expect 3). The restored file must also still
 export `redis` — `grep -c 'export async function redis' lib/store.js` (expect 1),
-without which every route importing `lib/guard.js` fails to build.
+without which every route importing `lib/guard.js` fails to build — and
+`readKey`, which `lib/mail.js` needs (`grep -c 'export async function readKey'`,
+expect 1).
+
+The cookie must be replayed by hand (see below). On Windows, where curl's jar
+drops it, this works:
+`curl -s -D - -o /dev/null -X POST .../api/auth/login ... | grep -i '^set-cookie' | sed -E 's/^[Ss]et-[Cc]ookie: ([^;]*).*/\1/'`,
+then `-H "Cookie: $C"` on each request.
 
 Kill stale servers before retesting — a leftover `next start` holding :3000 will
 silently serve the **old** build and produce confusing 405s.
@@ -1155,6 +1252,11 @@ measured at 320/360/390/412/430px, document overflow was zero on every tab.
   wordmark was not clipped, and "Commerce" ran underneath the settings gear at
   320px. The name now gives way instead: `.ucc-masthead-hq` is hidden and
   `.ucc-masthead-name` drops to 16.5px.
+- **Signed in, the wordmark is hidden under 520px** (`.ucc-masthead-words`).
+  The mail envelope is a fourth button, and beside it the name was a sliver at
+  320px and read "Comme" at 430px. The seal carries the company on its own, and
+  the home button has an `aria-label` because its visible words are gone.
+  Signed-out visitors have three buttons and keep the name.
 - **The tab strip has a right-edge fade** (`.ucc-nav-scroll`). It cannot fit on a
   phone at any sensible size, so it scrolls — but mobile browsers only show a
   scrollbar while it is moving, so it just looked cut off and nobody found the
@@ -1218,6 +1320,13 @@ so it is a real test. Keep that out of the repo.
   rest are on the record and show in the control room; this is a page-length
   decision, not a cap.
 - Concurrent exec edits are last-write-wins across the whole blob.
+- The mail is one blob too, so two messages sent in the same instant can race
+  and one can be lost. That's rare at this company's size, and read marks are
+  kept out of it so they can't cause it.
+- The mail keeps 100 messages per thread and the 200 most recently active
+  threads, fewer once the store passes 512KB (Upstash refuses requests over
+  1MB). The quietest go first, silently. There is no way to delete a message
+  or a thread, and no archive.
 
 ## The caps live in one place
 

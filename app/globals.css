@@ -164,6 +164,16 @@ input:focus, textarea:focus, select:focus { border-color: #111C2E !important; }
   .ucc-masthead-actions .ucc-btn { padding-left: 11px !important; padding-right: 11px !important; }
 }
 
+/* Signed in there is a fourth button, the mail envelope, and the name no
+   longer fits beside it — at 320px it was a sliver next to the seal, at
+   430px "Comme". The seal is the company mark and the home button on its
+   own, so the words go and it stands alone. Signed-out visitors keep the
+   name: they have three buttons and it still fits. Its own query because
+   it reaches wider than the one above. */
+@media (max-width: 519px) {
+  .ucc-masthead-words { display: none !important; }
+}
+
 ::selection { background: #C0913A; color: #0C1724; }
 
 @media (prefers-reduced-motion: reduce) {
